@@ -19,6 +19,7 @@ builds:
     env:
       - CGO_ENABLED=0
     tags:
+      - goolm
       - stdjson
     ldflags:
       - -s -w
@@ -35,34 +36,20 @@ builds:
     goarch:
       - amd64
       - arm64
-      - 386
       - riscv64
       - loong64
-      - arm
       - s390x
-      - mipsle
-      - mips
-    goarm:
-      - "6"
-      - "7"
-    gomips:
-      - softfloat
     main: ./cmd/picoclaw
     ignore:
-      - goos: windows
-        goarch: arm
       - goos: netbsd
         goarch: s390x
-      - goos: netbsd
-        goarch: mips64
-      - goos: netbsd
-        goarch: arm
 
   - id: picoclaw-launcher
     binary: picoclaw-launcher
     env:
       - CGO_ENABLED=0
     tags:
+      - goolm
       - stdjson
     ldflags:
       - -s -w
@@ -79,28 +66,13 @@ builds:
     goarch:
       - amd64
       - arm64
-      - 386
       - riscv64
       - loong64
-      - arm
       - s390x
-      - mipsle
-      - mips
-    goarm:
-      - "6"
-      - "7"
-    gomips:
-      - softfloat
     main: ./web/backend
     ignore:
-      - goos: windows
-        goarch: arm
       - goos: netbsd
         goarch: s390x
-      - goos: netbsd
-        goarch: mips64
-      - goos: netbsd
-        goarch: arm
 
 dockers_v2:
   - id: picoclaw
