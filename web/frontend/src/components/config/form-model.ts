@@ -358,6 +358,7 @@ export function buildFormFromConfig(config: unknown): CoreConfigForm {
   const mcpDiscovery = asRecord(mcp.discovery)
   const cron = asRecord(tools.cron)
   const exec = asRecord(tools.exec)
+  const sendTTS = asRecord(tools.send_tts)
   const toolFeedback = asRecord(defaults.tool_feedback)
   const voice = asRecord(root.voice)
 
@@ -508,7 +509,7 @@ export function buildFormFromConfig(config: unknown): CoreConfigForm {
       return "auto"
     })(),
     ttsModelName: asString(voice.tts_model_name),
-    ttsEnabled: asString(voice.tts_model_name) !== "",
+    ttsEnabled: asString(voice.tts_model_name) !== "" || asBool(sendTTS.enabled),
     ttsProvider:
       asRecord(voice.mimo_config).tts_provider === "mimo" ? "mimo" : "generic",
     ttsMimoVariant:

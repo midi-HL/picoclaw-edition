@@ -658,6 +658,9 @@ export function ConfigPage() {
               discovery: mcpDiscoveryPatch,
               servers: mcpServersPatch,
             },
+            send_tts: {
+              enabled: form.ttsEnabled,
+            },
           },
           heartbeat: {
             enabled: form.heartbeatEnabled,
