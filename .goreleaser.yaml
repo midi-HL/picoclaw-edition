@@ -19,7 +19,6 @@ builds:
     env:
       - CGO_ENABLED=0
     tags:
-      - goolm
       - stdjson
     ldflags:
       - -s -w
@@ -58,47 +57,12 @@ builds:
         goarch: mips64
       - goos: netbsd
         goarch: arm
-      # 32-bit architectures use picoclaw-no-goolm (goolm has CGO type errors on 32-bit)
-      - goos: linux
-        goarch: 386
-      - goos: linux
-        goarch: arm
-      - goos: linux
-        goarch: mipsle
-      - goos: linux
-        goarch: mips
-
-  - id: picoclaw-no-goolm
-    env:
-      - CGO_ENABLED=0
-    tags:
-      - stdjson
-    ldflags:
-      - -s -w
-      - -X github.com/sipeed/picoclaw/pkg/config.Version={{ .Version }}
-      - -X github.com/sipeed/picoclaw/pkg/config.GitCommit={{ .ShortCommit }}
-      - -X github.com/sipeed/picoclaw/pkg/config.BuildTime={{ .Date }}
-      - -X github.com/sipeed/picoclaw/pkg/config.GoVersion={{ with index .Env "GOVERSION" }}{{ . }}{{ else }}unknown{{ end }}
-    goos:
-      - linux
-    goarch:
-      - 386
-      - arm
-      - mipsle
-      - mips
-    goarm:
-      - "6"
-      - "7"
-    gomips:
-      - softfloat
-    main: ./cmd/picoclaw
 
   - id: picoclaw-launcher
     binary: picoclaw-launcher
     env:
       - CGO_ENABLED=0
     tags:
-      - goolm
       - stdjson
     ldflags:
       - -s -w
