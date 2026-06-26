@@ -502,11 +502,11 @@ export function buildFormFromConfig(config: unknown): CoreConfigForm {
     asrEnabled: asString(voice.model_name) !== "",
     asrProvider:
       asRecord(voice.mimo_config).asr_provider === "mimo" ? "mimo" : "generic",
-    asrMimoLanguage:
-      asRecord(voice.mimo_config).asr_language === "zh" ||
-      asRecord(voice.mimo_config).asr_language === "en"
-        ? asRecord(voice.mimo_config).asr_language
-        : "auto",
+    asrMimoLanguage: ((): "auto" | "zh" | "en" => {
+      const lang = asString(asRecord(voice.mimo_config).asr_language)
+      if (lang === "zh" || lang === "en") return lang
+      return "auto"
+    })(),
     ttsModelName: asString(voice.tts_model_name),
     ttsEnabled: asString(voice.tts_model_name) !== "",
     ttsProvider:
