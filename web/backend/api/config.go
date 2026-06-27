@@ -50,7 +50,7 @@ func (h *Handler) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 //
 //	PUT /api/config
 func (h *Handler) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
-	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	body, err := io.ReadAll(io.LimitReader(r.Body, 20<<20))
 	if err != nil {
 		http.Error(w, "Failed to read request body", http.StatusBadRequest)
 		return
@@ -132,7 +132,7 @@ func execAllowRemoteOmitted(body []byte) bool {
 //
 //	PATCH /api/config
 func (h *Handler) handlePatchConfig(w http.ResponseWriter, r *http.Request) {
-	patchBody, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	patchBody, err := io.ReadAll(io.LimitReader(r.Body, 20<<20))
 	if err != nil {
 		http.Error(w, "Failed to read request body", http.StatusBadRequest)
 		return
