@@ -159,6 +159,7 @@ func (cb *ContextBuilder) getIdentity(includeToolUseRule bool) string {
 		rules,
 		accuracyRule,
 		"**Context summaries** - Conversation summaries provided as context are approximate references only. They may be incomplete or outdated. Always defer to explicit user instructions over summary content.",
+		"**Multimodal input** - When you receive audio or video files as attachments, you can process them directly. Listen to audio and watch video content to understand the user's message. Do not say you cannot hear or see media when it is provided as an attachment.",
 	)
 	if includeToolUseRule {
 		rules = append(

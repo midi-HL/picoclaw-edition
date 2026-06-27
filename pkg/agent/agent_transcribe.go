@@ -12,8 +12,29 @@ import (
 )
 
 func (al *AgentLoop) transcribeAudioInMessage(ctx context.Context, msg bus.InboundMessage) (bus.InboundMessage, bool) {
-	if al.transcriber == nil || al.mediaStore == nil || len(msg.Media) == 0 {
+	if al.mediaStore == nil || len(msg.Media) == 0 {
 		return msg, false
+	}
+
+	// If no transcriber is configured, still process audio annotations.
+	// Audio will be passed as data URLs for multimodal models to handle directly.
+	if al.transcriber == nil {
+		hasAudio := false
+		for _, ref := range msg.Media {
+			if _, meta, err := al.mediaStore.ResolveWithMeta(ref); err == nil {
+				if utils.IsAudioFile(meta.Filename, meta.ContentType) {
+					hasAudio = true
+					break
+				}
+			}
+		}
+		if !hasAudio {
+			return msg, false
+		}
+		// Replace [voice] placeholders with a note that audio is attached.
+		newContent := audioAnnotationRe.ReplaceAllString(msg.Content, "[audio message attached]")
+		msg.Content = newContent
+		return msg, true
 	}
 
 	// Transcribe each audio media ref in order.
