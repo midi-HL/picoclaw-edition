@@ -615,11 +615,9 @@ export function ConfigPage() {
             // Voice design - voice description text
             extraBody.voice_design_text = form.ttsMimoVoiceDesignText || ""
           } else if (ttsModelName === "mimo-v2.5-tts-voiceclone") {
-            // Voice clone - reference audio as data URL
+            // Voice clone - FileReader.readAsDataURL already produces a data URL
             if (form.ttsMimoVoiceCloneData) {
-              const ext = (form.ttsMimoVoiceCloneFileName || "").toLowerCase()
-              const mime = ext.endsWith(".wav") ? "audio/wav" : "audio/mpeg"
-              extraBody.voice_clone_data = `data:${mime};base64,${form.ttsMimoVoiceCloneData}`
+              extraBody.voice_clone_data = form.ttsMimoVoiceCloneData
             }
           }
           if (Object.keys(extraBody).length > 0) {

@@ -738,10 +738,25 @@ type DevicesConfig struct {
 }
 
 type VoiceConfig struct {
-	ModelName         string `json:"model_name,omitempty"         env:"PICOCLAW_VOICE_MODEL_NAME"`
-	TTSModelName      string `json:"tts_model_name,omitempty"     env:"PICOCLAW_VOICE_TTS_MODEL_NAME"`
-	EchoTranscription bool   `json:"echo_transcription"           env:"PICOCLAW_VOICE_ECHO_TRANSCRIPTION"`
-	ElevenLabsAPIKey  string `json:"elevenlabs_api_key,omitempty" env:"PICOCLAW_VOICE_ELEVENLABS_API_KEY"`
+	ModelName         string         `json:"model_name,omitempty"         env:"PICOCLAW_VOICE_MODEL_NAME"`
+	TTSModelName      string         `json:"tts_model_name,omitempty"     env:"PICOCLAW_VOICE_TTS_MODEL_NAME"`
+	EchoTranscription bool           `json:"echo_transcription"           env:"PICOCLAW_VOICE_ECHO_TRANSCRIPTION"`
+	ElevenLabsAPIKey  string         `json:"elevenlabs_api_key,omitempty" env:"PICOCLAW_VOICE_ELEVENLABS_API_KEY"`
+	MimoConfig        *VoiceMimoConfig `json:"mimo_config,omitempty"`
+}
+
+// VoiceMimoConfig holds MiMo-specific ASR/TTS settings.
+type VoiceMimoConfig struct {
+	ASRProvider string `json:"asr_provider,omitempty"`
+	ASRLanguage string `json:"asr_language,omitempty"`
+	ASRApiKey   string `json:"asr_api_key,omitempty"`
+	TTSProvider string `json:"tts_provider,omitempty"`
+	TTSVariant  string `json:"tts_variant,omitempty"`
+	TTSVoice    string `json:"tts_voice,omitempty"`
+	TTSVoiceDesignText string `json:"tts_voice_design_text,omitempty"`
+	TTSVoiceCloneFileName string `json:"tts_voice_clone_filename,omitempty"`
+	TTSVoiceCloneData     string `json:"tts_voice_clone_data,omitempty"`
+	TTSApiKey string `json:"tts_api_key,omitempty"`
 }
 
 type ModelStreamingConfig struct {
