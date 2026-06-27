@@ -381,13 +381,14 @@ func (al *AgentLoop) askSideQuestion(
 	}
 
 	var media []string
-	var channel, chatID, senderID, senderDisplayName string
+	var channel, chatID, senderID, senderDisplayName, senderUsername string
 	if opts != nil {
 		media = opts.Media
 		channel = opts.Channel
 		chatID = opts.ChatID
 		senderID = opts.SenderID
 		senderDisplayName = opts.SenderDisplayName
+		senderUsername = opts.SenderUsername
 	}
 
 	// Build messages with context but WITHOUT adding to session history
@@ -415,6 +416,7 @@ func (al *AgentLoop) askSideQuestion(
 			ChatID:            chatID,
 			SenderID:          senderID,
 			SenderDisplayName: senderDisplayName,
+			SenderUsername:    senderUsername,
 		}
 	} else {
 		promptReq = promptBuildRequestForProcessOptions(

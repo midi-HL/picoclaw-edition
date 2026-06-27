@@ -25,6 +25,7 @@ func promptBuildRequestForTurn(
 		ChatID:            ts.chatID,
 		SenderID:          ts.opts.Dispatch.SenderID(),
 		SenderDisplayName: ts.opts.SenderDisplayName,
+		SenderUsername:    ts.opts.SenderUsername,
 		ActiveSkills:      activeSkillNames(ts.agent, ts.opts),
 		Overlays:          promptOverlaysForOptions(ts.opts),
 	}
@@ -88,6 +89,7 @@ func promptBuildRequestForProcessOptions(
 		ChatID:            opts.ChatID,
 		SenderID:          opts.SenderID,
 		SenderDisplayName: opts.SenderDisplayName,
+		SenderUsername:    opts.SenderUsername,
 		ActiveSkills:      activeSkillNames(agent, opts),
 		Overlays:          promptOverlaysForOptions(opts),
 	}

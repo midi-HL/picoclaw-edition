@@ -783,15 +783,26 @@ func (cb *ContextBuilder) LoadBootstrapFiles() string {
 //
 // See: https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching
 // See: https://platform.openai.com/docs/guides/prompt-caching
-func formatCurrentSenderLine(senderID, senderDisplayName string) string {
+func formatCurrentSenderLine(senderID, senderDisplayName, senderUsername string) string {
 	senderID = strings.TrimSpace(senderID)
 	senderDisplayName = strings.TrimSpace(senderDisplayName)
+	senderUsername = strings.TrimSpace(senderUsername)
+
+	// Build display string: "Name (@username)" or just "Name" or "@username"
+	name := senderDisplayName
+	if senderUsername != "" {
+		if name != "" {
+			name = name + " (@" + senderUsername + ")"
+		} else {
+			name = "@" + senderUsername
+		}
+	}
 
 	switch {
-	case senderDisplayName != "" && senderID != "":
-		return fmt.Sprintf("Current sender: %s (ID: %s)", senderDisplayName, senderID)
-	case senderDisplayName != "":
-		return fmt.Sprintf("Current sender: %s", senderDisplayName)
+	case name != "" && senderID != "":
+		return fmt.Sprintf("Current sender: %s (ID: %s)", name, senderID)
+	case name != "":
+		return fmt.Sprintf("Current sender: %s", name)
 	case senderID != "":
 		return fmt.Sprintf("Current sender: %s", senderID)
 	default:
@@ -800,7 +811,7 @@ func formatCurrentSenderLine(senderID, senderDisplayName string) string {
 }
 
 func (cb *ContextBuilder) buildDynamicContext(
-	channel, chatID, senderID, senderDisplayName string,
+	channel, chatID, senderID, senderDisplayName, senderUsername string,
 ) string {
 	now := time.Now().Format("2006-01-02 15:04 (Monday)")
 	rt := fmt.Sprintf("%s %s, Go %s", runtime.GOOS, runtime.GOARCH, runtime.Version())
@@ -811,7 +822,7 @@ func (cb *ContextBuilder) buildDynamicContext(
 	if channel != "" && chatID != "" {
 		fmt.Fprintf(&sb, "\n\n## Current Session\nChannel: %s\nChat ID: %s", channel, chatID)
 	}
-	if senderLine := formatCurrentSenderLine(senderID, senderDisplayName); senderLine != "" {
+	if senderLine := formatCurrentSenderLine(senderID, senderDisplayName, senderUsername); senderLine != "" {
 		fmt.Fprintf(&sb, "\n\n## Current Sender\n%s", senderLine)
 	}
 
@@ -915,6 +926,7 @@ func (cb *ContextBuilder) BuildMessagesFromPrompt(req PromptBuildRequest) []prov
 			req.ChatID,
 			req.SenderID,
 			req.SenderDisplayName,
+			req.SenderUsername,
 		)
 		dynamicChars = len(dynamicCtx)
 		runtimePart := PromptPart{

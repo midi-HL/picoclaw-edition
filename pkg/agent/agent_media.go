@@ -125,6 +125,17 @@ func resolveMediaRefs(
 					pendingToolImages = append(pendingToolImages, dataURL)
 				}
 			}
+
+			// For user messages: encode audio/video as data URLs so multimodal
+			// models can process them directly without a separate transcriber.
+			if m.Role == "user" && idx >= currentTurnStart {
+				if strings.HasPrefix(mime, "audio/") || strings.HasPrefix(mime, "video/") {
+					dataURL := encodeMediaToDataURL(localPath, mime, info, maxSize)
+					if dataURL != "" {
+						resolved = append(resolved, dataURL)
+					}
+				}
+			}
 		}
 
 		msg.Media = resolved
@@ -182,6 +193,12 @@ func encodeImageToDataURL(localPath, mime string, info os.FileInfo, maxSize int)
 	encoder.Close()
 
 	return buf.String()
+}
+
+// encodeMediaToDataURL is an alias for encodeImageToDataURL that works for
+// any media type (audio, video, etc.).
+func encodeMediaToDataURL(localPath, mime string, info os.FileInfo, maxSize int) string {
+	return encodeImageToDataURL(localPath, mime, info, maxSize)
 }
 
 func buildArtifactTags(store media.MediaStore, refs []string) []string {

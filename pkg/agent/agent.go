@@ -94,6 +94,7 @@ type processOptions struct {
 	ReplyToMessageID        string          // Current inbound reply target message ID
 	SenderID                string          // Current sender ID for dynamic context
 	SenderDisplayName       string          // Current sender display name for dynamic context
+	SenderUsername          string          // Current sender @username for dynamic context
 	UserMessage             string          // User message content (may include prefix)
 	ForcedSkills            []string        // Skills explicitly requested for this message
 	TurnProfile             config.EffectiveTurnProfile
