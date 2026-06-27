@@ -136,6 +136,19 @@ func SerializeMessages(messages []Message) []any {
 						"data": mediaURL,
 					},
 				})
+				continue
+			}
+
+			if strings.HasPrefix(mediaURL, "data:video/") {
+				// MiMo video_url format — the model handles frame extraction.
+				parts = append(parts, map[string]any{
+					"type": "video_url",
+					"video_url": map[string]any{
+						"url": mediaURL,
+					},
+					"fps":             2,
+					"media_resolution": "default",
+				})
 			}
 		}
 

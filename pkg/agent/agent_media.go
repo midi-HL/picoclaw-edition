@@ -127,13 +127,11 @@ func resolveMediaRefs(
 			}
 
 			// For user messages: encode audio/video as data URLs so multimodal
-			// models can process them directly without a separate transcriber.
-			if m.Role == "user" && idx >= currentTurnStart {
-				if strings.HasPrefix(mime, "audio/") || strings.HasPrefix(mime, "video/") {
-					dataURL := encodeMediaToDataURL(localPath, mime, info, maxSize)
-					if dataURL != "" {
-						resolved = append(resolved, dataURL)
-					}
+			// models can process them directly.
+			if m.Role == "user" && idx >= currentTurnStart && (strings.HasPrefix(mime, "audio/") || strings.HasPrefix(mime, "video/")) {
+				dataURL := encodeMediaToDataURL(localPath, mime, info, maxSize)
+				if dataURL != "" {
+					resolved = append(resolved, dataURL)
 				}
 			}
 		}
