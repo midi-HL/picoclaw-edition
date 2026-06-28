@@ -1,4 +1,4 @@
-[English](../../README.md) | [日本語](MODIFICATIONS.ja.md) | [한국어](MODIFICATIONS.ko.md) | [Português](MODIFICATIONS.pt-br.md) | [Tiếng Việt](MODIFICATIONS.vi.md) | [Français](MODIFICATIONS.fr.md) | [Italiano](MODIFICATIONS.it.md) | [Bahasa Indonesia](MODIFICATIONS.id.md) | [Malay](MODIFICATIONS.ms.md) | **中文**
+[English](../../README.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | [Português](README.pt-br.md) | [Tiếng Việt](README.vi.md) | [Français](README.fr.md) | [Italiano](README.it.md) | [Bahasa Indonesia](README.id.md) | [Malay](README.ms.md) | **中文**
 
 # PicoClaw 32 位 Fork — 修改说明与文档
 

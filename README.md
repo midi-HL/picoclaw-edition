@@ -1,4 +1,4 @@
-[中文版](docs/project/README.zh.md) | [日本語](docs/project/MODIFICATIONS.ja.md) | [한국어](docs/project/MODIFICATIONS.ko.md) | [Português](docs/project/MODIFICATIONS.pt-br.md) | [Tiếng Việt](docs/project/MODIFICATIONS.vi.md) | [Français](docs/project/MODIFICATIONS.fr.md) | [Italiano](docs/project/MODIFICATIONS.it.md) | [Bahasa Indonesia](docs/project/MODIFICATIONS.id.md) | [Malay](docs/project/MODIFICATIONS.ms.md) | **English**
+[中文版](docs/project/README.zh.md) | [日本語](docs/project/README.ja.md) | [한국어](docs/project/README.ko.md) | [Português](docs/project/README.pt-br.md) | [Tiếng Việt](docs/project/README.vi.md) | [Français](docs/project/README.fr.md) | [Italiano](docs/project/README.it.md) | [Bahasa Indonesia](docs/project/README.id.md) | [Malay](docs/project/README.ms.md) | **English**
 
 # PicoClaw 32-bit Fork — Modifications & Documentation
 
