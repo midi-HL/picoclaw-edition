@@ -1430,32 +1430,46 @@ func (c *TelegramChannel) downloadFileWithInfo(file *telego.File, ext string) st
 		return ""
 	}
 
+	filePath := file.FilePath
+
 	// Local Telegram Bot API servers in --local mode return absolute paths
-	// like /root/telegram-bot-api/{TOKEN}/voice/file_0.oga. In this case,
-	// the FileDownloadURL would produce a wrong URL with double slashes.
-	// Instead, read the file directly from the local filesystem.
-	if strings.HasPrefix(file.FilePath, "/") || strings.Contains(file.FilePath, ":\\") {
-		if _, err := os.Stat(file.FilePath); err == nil {
-			logger.DebugCF("telegram", "Local file path detected, reading directly", map[string]any{"path": file.FilePath})
-			// Copy to temp for consistency with the rest of the pipeline
+	// like /root/telegram-bot-api/{TOKEN}/voice/file_0.oga.
+	// The telego FileDownloadURL would produce a wrong URL with double slashes.
+	// Fix: try reading directly from the local filesystem first.
+	if strings.HasPrefix(filePath, "/") || strings.Contains(filePath, ":\\") {
+		if _, err := os.Stat(filePath); err == nil {
+			logger.DebugCF("telegram", "Local file path detected, reading directly", map[string]any{"path": filePath})
 			tmpDir := filepath.Join(os.TempDir(), "picoclaw_telegram")
 			_ = os.MkdirAll(tmpDir, 0o700)
-			tmpFile := filepath.Join(tmpDir, filepath.Base(file.FilePath))
-			if data, readErr := os.ReadFile(file.FilePath); readErr == nil {
+			tmpFile := filepath.Join(tmpDir, filepath.Base(filePath))
+			if data, readErr := os.ReadFile(filePath); readErr == nil {
 				if writeErr := os.WriteFile(tmpFile, data, 0o600); writeErr == nil {
 					return tmpFile
 				}
 			}
-			// Fallback: return the original path
-			return file.FilePath
+			logger.WarnCF("telegram", "Local file path exists but could not be read", map[string]any{"path": filePath})
+			return ""
+		}
+		// File does not exist locally — extract relative path for HTTP download.
+		// Local paths look like /root/telegram-bot-api/{TOKEN}/voice/file_0.oga
+		// We need to extract "voice/file_0.oga" for the download URL.
+		// Strategy: split by "/" and skip everything up to and including
+		// the token (which contains ":" like "123456:ABC...").
+		if parts := strings.Split(filePath, "/"); len(parts) >= 5 {
+			// Find the part containing ":" (the token)
+			for i, part := range parts {
+				if strings.Contains(part, ":") && i+1 < len(parts) {
+					filePath = strings.Join(parts[i+1:], "/")
+					break
+				}
+			}
 		}
 	}
 
-	url := c.bot.FileDownloadURL(file.FilePath)
+	url := c.bot.FileDownloadURL(filePath)
 	logger.DebugCF("telegram", "File URL", map[string]any{"url": url})
 
-	// Use FilePath as filename for better identification
-	filename := file.FilePath + ext
+	filename := filePath + ext
 	return utils.DownloadFile(url, filename, utils.DownloadOptions{
 		LoggerPrefix: "telegram",
 	})
