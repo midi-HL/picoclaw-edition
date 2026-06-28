@@ -2,7 +2,7 @@
 
 # PicoClaw 32비트 Fork — 변경 사항 및 문서
 
-이 문서는 이 fork(`picoclaw-32bit-main`)에서 상류 [PicoClaw](https://github.com/sipeed/picoclaw) 프로젝트 대비 모든 변경 사항을 설명합니다.
+이 문서는 이 fork(`picoclaw-edition`)에서 상류 [PicoClaw](https://github.com/sipeed/picoclaw) 프로젝트 대비 모든 변경 사항을 설명합니다.
 
 ---
 

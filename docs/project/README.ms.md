@@ -2,7 +2,7 @@
 
 # PicoClaw Fork 32-bit — Nota Pengubahsuaian dan Dokumentasi
 
-Dokumen ini menerangkan semua pengubahsuaian yang dilakukan pada fork ini (`picoclaw-32bit-main`) berbanding projek upstream [PicoClaw](https://github.com/sipeed/picoclaw).
+Dokumen ini menerangkan semua pengubahsuaian yang dilakukan pada fork ini (`picoclaw-edition`) berbanding projek upstream [PicoClaw](https://github.com/sipeed/picoclaw).
 
 ---
 

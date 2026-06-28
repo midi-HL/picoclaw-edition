@@ -2,7 +2,7 @@
 
 # PicoClaw 32-bit Fork — Modifications & Documentation
 
-This is the primary documentation for this fork (`picoclaw-32bit-main`). It describes all modifications made compared to the upstream [PicoClaw](https://github.com/sipeed/picoclaw) project, including 32-bit platform support, multimodal API changes, and new tools.
+This is the primary documentation for this fork (`picoclaw-edition`). It describes all modifications made compared to the upstream [PicoClaw](https://github.com/sipeed/picoclaw) project, including 32-bit platform support, multimodal API changes, and new tools.
 
 ---
 

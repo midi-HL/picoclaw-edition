@@ -204,7 +204,7 @@ nfpms:
       {{- else if eq .Arch "arm" }}armv{{ .Arm }}
       {{- else }}{{ .Arch }}{{ end }}
     vendor: picoclaw-edition
-    homepage: https://github.com/midi-HL/picoclaw-32bit-main
+    homepage: https://github.com/midi-HL/picoclaw-edition
     maintainer: picoclaw-edition contributors
     description: picoclaw-edition - PicoClaw fork with 32-bit support and multimodal enhancements
     license: MIT

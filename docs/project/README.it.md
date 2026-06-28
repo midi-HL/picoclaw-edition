@@ -2,7 +2,7 @@
 
 # PicoClaw Fork 32-bit — Note di Modifica e Documentazione
 
-Questo documento descrive tutte le modifiche apportate a questo fork (`picoclaw-32bit-main`) rispetto al progetto upstream [PicoClaw](https://github.com/sipeed/picoclaw).
+Questo documento descrive tutte le modifiche apportate a questo fork (`picoclaw-edition`) rispetto al progetto upstream [PicoClaw](https://github.com/sipeed/picoclaw).
 
 ---
 

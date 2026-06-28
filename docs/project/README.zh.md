@@ -2,7 +2,7 @@
 
 # PicoClaw 32 位 Fork — 修改说明与文档
 
-这是此 fork（`picoclaw-32bit-main`）的主要文档。包含相对于上游 [PicoClaw](https://github.com/sipeed/picoclaw) 的所有修改说明，以及 32 位平台支持、多模态 API 变更和新工具。
+这是此 fork（`picoclaw-edition`）的主要文档。包含相对于上游 [PicoClaw](https://github.com/sipeed/picoclaw) 的所有修改说明，以及 32 位平台支持、多模态 API 变更和新工具。
 
 ---
 

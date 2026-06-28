@@ -2,7 +2,7 @@
 
 # PicoClaw Fork 32-bit — Ghi chú Sửa đổi và Tài liệu
 
-Tài liệu này mô tả tất cả các thay đổi được thực hiện trong fork này (`picoclaw-32bit-main`) so với dự án upstream [PicoClaw](https://github.com/sipeed/picoclaw).
+Tài liệu này mô tả tất cả các thay đổi được thực hiện trong fork này (`picoclaw-edition`) so với dự án upstream [PicoClaw](https://github.com/sipeed/picoclaw).
 
 ---
 
