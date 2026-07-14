@@ -37,7 +37,7 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm build:backend
 
-      - name: Build Windows x64 binary
+      - name: Build picoclaw Windows x64
         run: |
           GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build \
             -tags "goolm stdjson" \
@@ -45,9 +45,24 @@ jobs:
             -o dist/picoclaw-windows-x64.exe \
             ./cmd/picoclaw
 
-      - name: Upload artifact
+      - name: Build picoclaw-launcher Windows x64
+        run: |
+          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build \
+            -tags "goolm stdjson" \
+            -ldflags "-s -w" \
+            -o dist/picoclaw-launcher-windows-x64.exe \
+            ./web/backend
+
+      - name: Upload picoclaw artifact
         uses: actions/upload-artifact@v4
         with:
           name: picoclaw-windows-x64
           path: dist/picoclaw-windows-x64.exe
+          retention-days: 7
+
+      - name: Upload picoclaw-launcher artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: picoclaw-launcher-windows-x64
+          path: dist/picoclaw-launcher-windows-x64.exe
           retention-days: 7
