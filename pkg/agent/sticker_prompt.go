@@ -1,0 +1,70 @@
+package agent
+
+import (
+	"context"
+	"fmt"
+	"strings"
+
+	"github.com/sipeed/picoclaw/pkg/sticker"
+)
+
+const (
+	// PromptSourceStickerList is the prompt source ID for sticker list injection
+	PromptSourceStickerList PromptSourceID = "runtime.sticker_list"
+)
+
+// stickerPromptContributor injects the available sticker list into the system prompt
+type stickerPromptContributor struct{}
+
+// PromptSource returns the descriptor for this prompt contributor
+func (c stickerPromptContributor) PromptSource() PromptSourceDescriptor {
+	return PromptSourceDescriptor{
+		ID:              PromptSourceStickerList,
+		Owner:           "sticker",
+		Description:     "Dynamic list of available Telegram stickers for AI to send",
+		Allowed:         []PromptPlacement{{Layer: PromptLayerContext, Slot: PromptSlotWorkspace}},
+		StableByDefault: false,
+	}
+}
+
+// ContributePrompt generates the sticker list prompt part
+func (c stickerPromptContributor) ContributePrompt(ctx context.Context, req PromptBuildRequest) ([]PromptPart, error) {
+	// Only inject for Telegram channel
+	if req.Channel != "telegram" {
+		return nil, nil
+	}
+
+	store := sticker.NewStore()
+	stickers := store.GetAll()
+	if len(stickers) == 0 {
+		return nil, nil
+	}
+
+	var sb strings.Builder
+	sb.WriteString("\n\n你现在可以使用以下 Telegram 自定义贴纸/表情包来让你的回答更加生动有趣。\n")
+	sb.WriteString("如果你认为在当前的对话语境下发送某个表情包非常合适，请直接在你的回复文本末尾或合适位置显式输出占位符标记：[SEND_STICKER: <StickerID>]。\n")
+	sb.WriteString("注意：\n")
+	sb.WriteString("1. 每次回复最多只能发送 1 张表情包。\n")
+	sb.WriteString("2. 只有在确实非常契合、幽默或者需要强烈表达情绪时才使用，不要频繁滥用。\n")
+	sb.WriteString("3. 不要使用任何不包含在下方列表中的 StickerID。\n")
+	sb.WriteString("4. 严禁只用该标记回复，它必须配合你的文本对话一同输出，且此标记会被系统截断不展示给用户。\n\n")
+	sb.WriteString("当前可用表情包列表：\n")
+
+	for _, item := range stickers {
+		sb.WriteString(fmt.Sprintf("- StickerID: \"%s\" | 适用场景: \"%s\" | 画面描述: \"%s\"\n",
+			item.ID, item.UsageScenarios, item.Description))
+	}
+
+	return []PromptPart{
+		{
+			ID:      "sticker.list",
+			Layer:   PromptLayerContext,
+			Slot:    PromptSlotWorkspace,
+			Source:  PromptSource{ID: PromptSourceStickerList, Name: "sticker.list"},
+			Title:   "Available Telegram Stickers",
+			Content: sb.String(),
+			Stable:  false,
+			Cache:   PromptCacheNone,
+		},
+	}, nil
+}

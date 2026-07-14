@@ -14,6 +14,7 @@ import { Field, KeyInput, SwitchCardField } from "@/components/shared-form"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 
+import { TelegramStickerManager } from "./telegram-sticker-manager"
 import { StreamingConfigField } from "./streaming-config-field"
 
 interface TelegramFormProps {
@@ -166,6 +167,9 @@ export function TelegramForm({
           </div>
         </CardContent>
       </Card>
+
+      {/* Sticker Management Section */}
+      <TelegramStickerManager />
     </div>
   )
 }

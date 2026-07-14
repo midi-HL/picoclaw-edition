@@ -138,6 +138,13 @@ func NewAgentInstance(
 		).
 		WithSplitOnMarker(cfg.Agents.Defaults.SplitOnMarker)
 
+	// Register sticker prompt contributor for Telegram sticker support
+	if err := contextBuilder.RegisterPromptContributor(stickerPromptContributor{}); err != nil {
+		logger.WarnCF("agent", "Failed to register sticker prompt contributor", map[string]any{
+			"error": err.Error(),
+		})
+	}
+
 	agentID := routing.DefaultAgentID
 	agentName := ""
 	var subagents *config.SubagentsConfig

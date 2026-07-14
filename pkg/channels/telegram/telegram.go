@@ -29,6 +29,7 @@ import (
 	"github.com/sipeed/picoclaw/pkg/identity"
 	"github.com/sipeed/picoclaw/pkg/logger"
 	"github.com/sipeed/picoclaw/pkg/media"
+	"github.com/sipeed/picoclaw/pkg/sticker"
 	"github.com/sipeed/picoclaw/pkg/utils"
 )
 
@@ -232,6 +233,16 @@ func (c *TelegramChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]
 		return nil, nil
 	}
 
+	// Intercept sticker sending tag before processing text content
+	reSticker := regexp.MustCompile(`\[SEND_STICKER:\s*([a-zA-Z0-9_-]+)\s*\]`)
+	stickerMatches := reSticker.FindStringSubmatch(msg.Content)
+	var pendingStickerID string
+	if len(stickerMatches) > 1 {
+		pendingStickerID = stickerMatches[1]
+		// Remove the sticker tag from the text content
+		msg.Content = reSticker.ReplaceAllString(msg.Content, "")
+	}
+
 	isToolFeedback := outboundMessageIsToolFeedback(msg)
 	toolFeedbackContent := msg.Content
 	if isToolFeedback {
@@ -348,7 +359,68 @@ func (c *TelegramChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]
 		c.dismissTrackedToolFeedbackMessage(ctx, trackedChatID, trackedMsgID)
 	}
 
+	// Send sticker if requested by the AI model
+	if pendingStickerID != "" {
+		if err := c.sendStickerByID(ctx, chatID, threadID, pendingStickerID); err != nil {
+			logger.WarnCF("telegram", "Failed to send sticker", map[string]any{
+				"sticker_id": pendingStickerID,
+				"error":      err.Error(),
+			})
+		}
+	}
+
 	return messageIDs, nil
+}
+
+// sendStickerByID sends a sticker by its ID from the sticker store
+func (c *TelegramChannel) sendStickerByID(ctx context.Context, chatID int64, threadID int, stickerID string) error {
+	stickerStore := sticker.NewStore()
+	item, found := stickerStore.GetByID(stickerID)
+	if !found {
+		return fmt.Errorf("sticker %q not found", stickerID)
+	}
+
+	if item.TelegramFileID != "" {
+		// Use Telegram file_id for fast sending
+		params := &telego.SendStickerParams{
+			ChatID:          tu.ID(chatID),
+			MessageThreadID: threadID,
+			Sticker: telego.InputFile{
+				FileID: item.TelegramFileID,
+			},
+		}
+		_, err := c.bot.SendSticker(ctx, params)
+		return err
+	}
+
+	if item.FilePath != "" {
+		// Send from local file
+		file, err := os.Open(item.FilePath)
+		if err != nil {
+			return fmt.Errorf("failed to open sticker file: %w", err)
+		}
+		defer file.Close()
+
+		params := &telego.SendStickerParams{
+			ChatID:          tu.ID(chatID),
+			MessageThreadID: threadID,
+			Sticker: telego.InputFile{
+				File: file,
+			},
+		}
+		msg, err := c.bot.SendSticker(ctx, params)
+		if err != nil {
+			return err
+		}
+
+		// Update the store with the Telegram file_id for future fast sends
+		if msg.Sticker != nil && msg.Sticker.FileID != "" {
+			_ = stickerStore.UpdateTelegramFileID(stickerID, msg.Sticker.FileID)
+		}
+		return nil
+	}
+
+	return fmt.Errorf("sticker %q has no file to send", stickerID)
 }
 
 type sendChunkParams struct {
@@ -1287,6 +1359,38 @@ func (c *TelegramChannel) collectTelegramMessageParts(
 			parts.content = append(parts.content, "[file]")
 		}
 	}
+
+	// Handle Telegram stickers (custom表情包)
+	if msg.Sticker != nil {
+		tgSticker := msg.Sticker
+		var targetFileID string
+		var ext string
+
+		// Format downgrade: animated/video stickers use their static thumbnail
+		if (tgSticker.IsAnimated || tgSticker.IsVideo) && tgSticker.Thumbnail != nil {
+			targetFileID = tgSticker.Thumbnail.FileID
+			ext = ".jpg"
+		} else {
+			targetFileID = tgSticker.FileID
+			ext = ".webp"
+		}
+
+		stickerPath := c.downloadFile(ctx, targetFileID, ext)
+		if stickerPath != "" {
+			stickerFilename := fmt.Sprintf("sticker-%s%s", tgSticker.FileID, ext)
+			parts.mediaPaths = append(parts.mediaPaths, storeMedia(stickerPath, stickerFilename))
+
+			// Build emoji hint for the model
+			emojiHint := ""
+			if tgSticker.Emoji != "" {
+				emojiHint = fmt.Sprintf(" (关联的 Emoji: %s)", tgSticker.Emoji)
+			}
+
+			parts.content = append(parts.content, fmt.Sprintf("[用户发送了一张自定义贴纸%s]", emojiHint))
+			parts.content = append(parts.content, "[系统提示：用户向你发送了一张自定义表情包/贴纸，其图片已附带在多模态输入中。请结合图片画面内容、场景氛围以及用户的聊天上下文，精准理解此表情包所表达的情感、动作与梗，并在后续回应中做出符合你人设、自然且富有表现力的互动。]")
+		}
+	}
+
 	return parts
 }
 

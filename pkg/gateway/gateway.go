@@ -50,6 +50,7 @@ import (
 	"github.com/sipeed/picoclaw/pkg/pid"
 	"github.com/sipeed/picoclaw/pkg/providers"
 	"github.com/sipeed/picoclaw/pkg/state"
+	"github.com/sipeed/picoclaw/pkg/sticker"
 	"github.com/sipeed/picoclaw/pkg/tools"
 )
 
@@ -463,6 +464,14 @@ func setupAndStartServices(
 	chatAPI := NewChatAPIHandler(msgBus)
 	runningServices.ChannelManager.RegisterHTTPHandlerFunc("/api/chat", chatAPI.handleChat)
 	runningServices.ChannelManager.RegisterHTTPHandlerFunc("/api/chat/stream", chatAPI.handleChatStream)
+
+	// Register Telegram sticker management API endpoints.
+	stickerStore := sticker.NewStore()
+	stickerAPI := NewStickerAPIHandler(stickerStore, cfg)
+	runningServices.ChannelManager.RegisterHTTPHandlerFunc("/api/telegram/stickers", stickerAPI.handleGetStickers)
+	runningServices.ChannelManager.RegisterHTTPHandlerFunc("/api/telegram/stickers/manual", stickerAPI.handleManualUpload)
+	runningServices.ChannelManager.RegisterHTTPHandlerFunc("/api/telegram/stickers/import-set", stickerAPI.handleImportSet)
+	runningServices.ChannelManager.RegisterHTTPHandlerFunc("/api/telegram/stickers/delete", stickerAPI.handleDeleteSticker)
 
 	// Hook outbound message collector for REST API responses.
 	msgBus.SetOutboundHook(CollectOutboundResponse)
