@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Textarea } from "@/components/ui/textarea"
 
 interface StickerItem {
@@ -163,20 +162,22 @@ export function TelegramStickerManager() {
         <CardContent className="pt-6 space-y-4">
           <Label className="text-base font-bold">新增表情包</Label>
 
-          <RadioGroup
-            defaultValue="manual"
-            onValueChange={(val) => setMode(val as "manual" | "import")}
-            className="flex gap-6"
-          >
-            <div className="flex items-center space-x-2">
-              <RadioGroupItem value="manual" id="sticker-mode-manual" />
-              <Label htmlFor="sticker-mode-manual">模式 A: 本地手动上传</Label>
-            </div>
-            <div className="flex items-center space-x-2">
-              <RadioGroupItem value="import" id="sticker-mode-import" />
-              <Label htmlFor="sticker-mode-import">模式 B: TG 官方套图导入</Label>
-            </div>
-          </RadioGroup>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant={mode === "manual" ? "default" : "outline"}
+              onClick={() => setMode("manual")}
+            >
+              模式 A: 本地手动上传
+            </Button>
+            <Button
+              type="button"
+              variant={mode === "import" ? "default" : "outline"}
+              onClick={() => setMode("import")}
+            >
+              模式 B: TG 官方套图导入
+            </Button>
+          </div>
 
           {mode === "manual" ? (
             <form onSubmit={handleManualSubmit} className="space-y-4 pt-2">
