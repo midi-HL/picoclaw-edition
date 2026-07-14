@@ -303,7 +303,7 @@ func (h *StickerAPIHandler) getTelegramToken() string {
 		return ""
 	}
 
-	return string(settings.Token)
+	return settings.Token.String()
 }
 
 // downloadStickerFile downloads a sticker file from Telegram.
