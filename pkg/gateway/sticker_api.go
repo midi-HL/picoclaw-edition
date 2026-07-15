@@ -60,6 +60,8 @@ type stickerImportRequest struct {
 
 // handleImportSet handles POST /api/telegram/stickers/import-set
 func (h *StickerAPIHandler) handleImportSet(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
 	if r.Method != http.MethodPost {
 		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
@@ -77,6 +79,10 @@ func (h *StickerAPIHandler) handleImportSet(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	logger.InfoCF("sticker", "Importing sticker set", map[string]any{
+		"set_name": setName,
+	})
+
 	// Get Telegram token from config
 	tgToken := h.getTelegramToken()
 	if tgToken == "" {
@@ -87,6 +93,9 @@ func (h *StickerAPIHandler) handleImportSet(w http.ResponseWriter, r *http.Reque
 	// Create a temporary bot for fetching sticker set
 	bot, err := telego.NewBot(tgToken)
 	if err != nil {
+		logger.ErrorCF("sticker", "Failed to create Telegram bot", map[string]any{
+			"error": err.Error(),
+		})
 		writeJSONError(w, http.StatusInternalServerError, "failed to create Telegram bot: "+err.Error())
 		return
 	}
@@ -98,6 +107,10 @@ func (h *StickerAPIHandler) handleImportSet(w http.ResponseWriter, r *http.Reque
 		Name: setName,
 	})
 	if err != nil {
+		logger.ErrorCF("sticker", "Failed to get sticker set", map[string]any{
+			"set_name": setName,
+			"error":    err.Error(),
+		})
 		writeJSONError(w, http.StatusInternalServerError, "failed to get sticker set: "+err.Error())
 		return
 	}

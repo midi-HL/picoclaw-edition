@@ -111,12 +111,22 @@ export function TelegramStickerManager() {
         body: JSON.stringify({ sticker_set_name: packName }),
       })
 
+      const text = await res.text()
+      let errMsg = "导入失败！"
+
+      try {
+        const err = JSON.parse(text)
+        errMsg = err.error || errMsg
+      } catch {
+        // Response is not JSON, use raw text or status
+        errMsg = text || `HTTP ${res.status}: 导入失败`
+      }
+
       if (res.ok) {
         fetchStickers()
         setSetLink("")
       } else {
-        const err = await res.json()
-        setError(err.error || "导入失败！")
+        setError(errMsg)
       }
     } catch (e) {
       setError("导入失败：" + (e instanceof Error ? e.message : "未知错误"))
