@@ -659,6 +659,17 @@ func main() {
 	apiHandler.SetServerBindHost(hostInput, hostOverrideActive)
 	apiHandler.RegisterRoutes(mux)
 
+	// Register Telegram sticker management routes
+	cfg, cfgErr := config.LoadConfig(absPath)
+	if cfgErr == nil {
+		stickerAPI := api.NewStickerAPIHandler(cfg)
+		stickerAPI.RegisterStickerRoutes(mux)
+	} else {
+		logger.WarnCF("web", "Failed to load config for sticker API", map[string]any{
+			"error": cfgErr.Error(),
+		})
+	}
+
 	// Frontend Embedded Assets
 	registerEmbedRoutes(mux)
 
