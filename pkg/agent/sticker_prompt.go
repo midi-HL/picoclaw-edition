@@ -30,13 +30,14 @@ func (c stickerPromptContributor) PromptSource() PromptSourceDescriptor {
 
 // ContributePrompt generates the sticker list prompt part
 func (c stickerPromptContributor) ContributePrompt(ctx context.Context, req PromptBuildRequest) ([]PromptPart, error) {
-	logger.DebugCF("sticker", "StickerPromptContributor called", map[string]any{
+	logger.InfoCF("sticker", "StickerPromptContributor called", map[string]any{
 		"channel": req.Channel,
 	})
 
-	// Only inject for Telegram channel
-	if req.Channel != "telegram" {
-		logger.DebugCF("sticker", "Skipping sticker prompt - not Telegram channel", map[string]any{
+	// Only inject for Telegram channel - check contains "telegram" (case-insensitive)
+	channelLower := strings.ToLower(req.Channel)
+	if !strings.Contains(channelLower, "telegram") && !strings.Contains(channelLower, "tg") {
+		logger.InfoCF("sticker", "Skipping sticker prompt - not Telegram channel", map[string]any{
 			"channel": req.Channel,
 		})
 		return nil, nil
@@ -44,10 +45,12 @@ func (c stickerPromptContributor) ContributePrompt(ctx context.Context, req Prom
 
 	store := sticker.NewStore()
 	stickers := store.GetAll()
-	logger.DebugCF("sticker", "Loaded stickers for prompt", map[string]any{
-		"count": len(stickers),
+	logger.InfoCF("sticker", "Loaded stickers for prompt", map[string]any{
+		"count":   len(stickers),
+		"channel": req.Channel,
 	})
 	if len(stickers) == 0 {
+		logger.InfoCF("sticker", "No stickers found in store")
 		return nil, nil
 	}
 

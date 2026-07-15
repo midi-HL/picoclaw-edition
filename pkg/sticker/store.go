@@ -31,6 +31,12 @@ func NewStore() *Store {
 	filePath := filepath.Join(home, stickerDBFileName)
 	mediaDir := filepath.Join(home, mediaSubDir)
 
+	logger.InfoCF("sticker", "Initializing sticker store", map[string]any{
+		"home":     home,
+		"filePath": filePath,
+		"mediaDir": mediaDir,
+	})
+
 	// 确保媒体目录存在
 	if err := os.MkdirAll(mediaDir, 0755); err != nil {
 		logger.WarnCF("sticker", "Failed to create media directory", map[string]any{
@@ -52,6 +58,9 @@ func (s *Store) load() {
 	data, err := os.ReadFile(s.filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
+			logger.InfoCF("sticker", "Sticker database not found, creating empty database", map[string]any{
+				"path": s.filePath,
+			})
 			s.db = StickerDatabase{Stickers: []StickerItem{}}
 			return
 		}
@@ -73,6 +82,11 @@ func (s *Store) load() {
 	if s.db.Stickers == nil {
 		s.db.Stickers = []StickerItem{}
 	}
+
+	logger.InfoCF("sticker", "Loaded sticker database", map[string]any{
+		"count": len(s.db.Stickers),
+		"path":  s.filePath,
+	})
 }
 
 // save 将数据持久化到 JSON 文件
