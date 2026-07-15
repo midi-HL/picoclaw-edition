@@ -1,4 +1,4 @@
-name: Build Windows x64
+name: Build Windows x64 & Linux arm64
 
 on:
   workflow_dispatch:
@@ -65,4 +65,65 @@ jobs:
         with:
           name: picoclaw-launcher-windows-x64
           path: dist/picoclaw-launcher-windows-x64.exe
+          retention-days: 7
+
+  build-linux-arm64:
+    name: Build Linux arm64
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10.33.0
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/frontend/pnpm-lock.yaml
+
+      - name: Build frontend
+        run: |
+          cd web/frontend
+          pnpm install --frozen-lockfile
+          pnpm build:backend
+
+      - name: Build picoclaw Linux arm64
+        run: |
+          GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build \
+            -tags "goolm stdjson" \
+            -ldflags "-s -w" \
+            -o dist/picoclaw-linux-arm64 \
+            ./cmd/picoclaw
+
+      - name: Build picoclaw-launcher Linux arm64
+        run: |
+          GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build \
+            -tags "goolm stdjson" \
+            -ldflags "-s -w" \
+            -o dist/picoclaw-launcher-linux-arm64 \
+            ./web/backend
+
+      - name: Upload picoclaw artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: picoclaw-linux-arm64
+          path: dist/picoclaw-linux-arm64
+          retention-days: 7
+
+      - name: Upload picoclaw-launcher artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: picoclaw-launcher-linux-arm64
+          path: dist/picoclaw-launcher-linux-arm64
           retention-days: 7
