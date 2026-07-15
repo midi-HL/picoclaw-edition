@@ -50,7 +50,9 @@ func (c stickerPromptContributor) ContributePrompt(ctx context.Context, req Prom
 		"channel": req.Channel,
 	})
 	if len(stickers) == 0 {
-		logger.InfoCF("sticker", "No stickers found in store")
+		logger.InfoCF("sticker", "No stickers found in store", map[string]any{
+			"channel": req.Channel,
+		})
 		return nil, nil
 	}
 
