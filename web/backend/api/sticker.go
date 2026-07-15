@@ -177,7 +177,12 @@ func (h *StickerAPIHandler) handleImportSet(w http.ResponseWriter, r *http.Reque
 	}
 
 	// Get default LLM provider for auto-describing
-	provider, _, providerErr := providers.CreateProvider(h.cfg)
+	provider, modelName, providerErr := providers.CreateProvider(h.cfg)
+	if providerErr == nil {
+		logger.InfoCF("sticker", "Using model for sticker description", map[string]any{
+			"model": modelName,
+		})
+	}
 
 	imported := 0
 	for _, tgSticker := range set.Stickers {
@@ -216,7 +221,7 @@ func (h *StickerAPIHandler) handleImportSet(w http.ResponseWriter, r *http.Reque
 		description := ""
 		usageScenarios := "适用于日常聊天中的相关场景"
 		if providerErr == nil && provider != nil {
-			description = h.autoDescribeSticker(ctx, provider, localPath)
+			description = h.autoDescribeSticker(ctx, provider, modelName, localPath)
 		}
 
 		// Build emoji hint
@@ -340,7 +345,7 @@ func (h *StickerAPIHandler) downloadStickerFile(bot *telego.Bot, ctx context.Con
 }
 
 // autoDescribeSticker uses the default LLM to generate a description for a sticker.
-func (h *StickerAPIHandler) autoDescribeSticker(ctx context.Context, provider providers.LLMProvider, imagePath string) string {
+func (h *StickerAPIHandler) autoDescribeSticker(ctx context.Context, provider providers.LLMProvider, modelName string, imagePath string) string {
 	imgData, err := os.ReadFile(imagePath)
 	if err != nil {
 		logger.WarnCF("sticker", "Failed to read image for description", map[string]any{
@@ -359,7 +364,7 @@ func (h *StickerAPIHandler) autoDescribeSticker(ctx context.Context, provider pr
 		},
 	}
 
-	response, err := provider.Chat(ctx, messages, nil, "", nil)
+	response, err := provider.Chat(ctx, messages, nil, modelName, nil)
 	if err != nil {
 		logger.WarnCF("sticker", "Failed to generate sticker description", map[string]any{
 			"error": err.Error(),
