@@ -51,8 +51,16 @@ func (c stickerPromptContributor) ContributePrompt(ctx context.Context, req Prom
 	sb.WriteString("当前可用表情包列表：\n")
 
 	for _, item := range stickers {
-		sb.WriteString(fmt.Sprintf("- StickerID: \"%s\" | 适用场景: \"%s\" | 画面描述: \"%s\"\n",
-			item.ID, item.UsageScenarios, item.Description))
+		emojiHint := item.EmojiHint
+		if emojiHint == "" {
+			emojiHint = "无"
+		}
+		desc := item.Description
+		if desc == "" {
+			desc = "自定义表情包"
+		}
+		sb.WriteString(fmt.Sprintf("- StickerID: \"%s\" | Emoji: %s | 适用场景: \"%s\" | 描述: \"%s\"\n",
+			item.ID, emojiHint, item.UsageScenarios, desc))
 	}
 
 	return []PromptPart{
