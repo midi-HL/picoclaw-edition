@@ -1,4 +1,4 @@
-import { IconLoader2, IconTrash } from "@tabler/icons-react"
+import { IconLoader2, IconTrash, IconChecklist } from "@tabler/icons-react"
 import { useCallback, useEffect, useState } from "react"
 
 import { Button } from "@/components/ui/button"
@@ -24,6 +24,10 @@ export function TelegramStickerManager() {
   const [mode, setMode] = useState<"manual" | "import">("manual")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
+
+  // Batch delete state
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [batchDeleting, setBatchDeleting] = useState(false)
 
   // Mode A: Manual upload form state
   const [manualFile, setManualFile] = useState<File | null>(null)
@@ -74,7 +78,6 @@ export function TelegramStickerManager() {
 
       if (res.ok) {
         fetchStickers()
-        // Reset form
         setManualFile(null)
         setStickerId("")
         setEmojiHint("")
@@ -98,7 +101,6 @@ export function TelegramStickerManager() {
     setLoading(true)
     setError("")
 
-    // Extract pack name from link
     let packName = setLink
     if (setLink.includes("addstickers/")) {
       packName = setLink.split("addstickers/")[1]
@@ -118,7 +120,6 @@ export function TelegramStickerManager() {
         const err = JSON.parse(text)
         errMsg = err.error || errMsg
       } catch {
-        // Response is not JSON, use raw text or status
         errMsg = text || `HTTP ${res.status}: 导入失败`
       }
 
@@ -143,8 +144,55 @@ export function TelegramStickerManager() {
         method: "DELETE",
       })
       fetchStickers()
+      setSelectedIds((prev) => {
+        const next = new Set(prev)
+        next.delete(id)
+        return next
+      })
     } catch (e) {
       setError("删除失败：" + (e instanceof Error ? e.message : "未知错误"))
+    }
+  }
+
+  const handleSelectAll = () => {
+    if (selectedIds.size === stickers.length) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(stickers.map((s) => s.id)))
+    }
+  }
+
+  const handleSelectOne = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) {
+        next.delete(id)
+      } else {
+        next.add(id)
+      }
+      return next
+    })
+  }
+
+  const handleBatchDelete = async () => {
+    if (selectedIds.size === 0) return
+    if (!confirm(`确定要删除选中的 ${selectedIds.size} 个表情包吗？`)) return
+
+    setBatchDeleting(true)
+    setError("")
+
+    try {
+      for (const id of selectedIds) {
+        await fetch(`/api/telegram/stickers/delete?id=${encodeURIComponent(id)}`, {
+          method: "DELETE",
+        })
+      }
+      setSelectedIds(new Set())
+      fetchStickers()
+    } catch (e) {
+      setError("批量删除失败：" + (e instanceof Error ? e.message : "未知错误"))
+    } finally {
+      setBatchDeleting(false)
     }
   }
 
@@ -297,13 +345,52 @@ export function TelegramStickerManager() {
       </Card>
 
       <div>
-        <Label className="text-base font-bold block mb-3">
-          当前已注册表情包列表 ({stickers.length})
-        </Label>
+        <div className="flex items-center justify-between mb-3">
+          <Label className="text-base font-bold">
+            当前已注册表情包列表 ({stickers.length})
+          </Label>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleSelectAll}
+            >
+              <IconChecklist className="mr-1 h-4 w-4" />
+              {selectedIds.size === stickers.length ? "取消全选" : "全选"}
+            </Button>
+            {selectedIds.size > 0 && (
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={handleBatchDelete}
+                disabled={batchDeleting}
+              >
+                {batchDeleting ? (
+                  <IconLoader2 className="mr-1 h-4 w-4 animate-spin" />
+                ) : (
+                  <IconTrash className="mr-1 h-4 w-4" />
+                )}
+                删除选中 ({selectedIds.size})
+              </Button>
+            )}
+          </div>
+        </div>
+
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {stickers.map((item) => (
-            <Card key={item.id} className="overflow-hidden">
-              <div className="h-40 bg-muted flex items-center justify-center p-2">
+            <Card
+              key={item.id}
+              className={`overflow-hidden ${
+                selectedIds.has(item.id) ? "ring-2 ring-primary" : ""
+              }`}
+            >
+              <div className="h-40 bg-muted flex items-center justify-center p-2 relative">
+                <input
+                  type="checkbox"
+                  checked={selectedIds.has(item.id)}
+                  onChange={() => handleSelectOne(item.id)}
+                  className="absolute top-2 left-2 h-4 w-4"
+                />
                 {item.file_path ? (
                   <img
                     src={`/api/media/file?path=${encodeURIComponent(item.file_path)}`}
@@ -332,7 +419,7 @@ export function TelegramStickerManager() {
                   </div>
                 )}
                 <div className="text-muted-foreground line-clamp-2">
-                  <b>描述:</b> {item.description}
+                  <b>描述:</b> {item.description || "无描述"}
                 </div>
                 <div className="text-muted-foreground line-clamp-2">
                   <b>场景:</b> {item.usage_scenarios}

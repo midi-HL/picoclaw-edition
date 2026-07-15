@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/sipeed/picoclaw/pkg/logger"
 	"github.com/sipeed/picoclaw/pkg/sticker"
 )
 
@@ -29,13 +30,23 @@ func (c stickerPromptContributor) PromptSource() PromptSourceDescriptor {
 
 // ContributePrompt generates the sticker list prompt part
 func (c stickerPromptContributor) ContributePrompt(ctx context.Context, req PromptBuildRequest) ([]PromptPart, error) {
+	logger.DebugCF("sticker", "StickerPromptContributor called", map[string]any{
+		"channel": req.Channel,
+	})
+
 	// Only inject for Telegram channel
 	if req.Channel != "telegram" {
+		logger.DebugCF("sticker", "Skipping sticker prompt - not Telegram channel", map[string]any{
+			"channel": req.Channel,
+		})
 		return nil, nil
 	}
 
 	store := sticker.NewStore()
 	stickers := store.GetAll()
+	logger.DebugCF("sticker", "Loaded stickers for prompt", map[string]any{
+		"count": len(stickers),
+	})
 	if len(stickers) == 0 {
 		return nil, nil
 	}
