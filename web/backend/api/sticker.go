@@ -1,15 +1,21 @@
 package api
 
 import (
+	"context"
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/mymmrac/telego"
+
 	"github.com/sipeed/picoclaw/pkg/config"
 	"github.com/sipeed/picoclaw/pkg/logger"
+	"github.com/sipeed/picoclaw/pkg/providers"
 	"github.com/sipeed/picoclaw/pkg/sticker"
 )
 
@@ -138,12 +144,112 @@ func (h *StickerAPIHandler) handleImportSet(w http.ResponseWriter, r *http.Reque
 		"set_name": setName,
 	})
 
-	// Note: The actual Telegram API call should be made by the gateway.
-	// For now, return a message indicating the import is pending.
-	// In a full implementation, this would proxy to the gateway or
-	// use the Telegram API directly.
+	// Get Telegram token from config
+	tgToken := h.getTelegramToken()
+	if tgToken == "" {
+		writeStickerError(w, http.StatusBadRequest, "Telegram token not configured")
+		return
+	}
 
-	writeStickerError(w, http.StatusNotImplemented, "Import via launcher requires gateway integration. Please use the gateway API directly.")
+	// Create a temporary bot for fetching sticker set
+	bot, err := telego.NewBot(tgToken)
+	if err != nil {
+		logger.ErrorCF("sticker", "Failed to create Telegram bot", map[string]any{
+			"error": err.Error(),
+		})
+		writeStickerError(w, http.StatusInternalServerError, "failed to create Telegram bot: "+err.Error())
+		return
+	}
+
+	ctx := r.Context()
+
+	// Fetch the sticker set
+	set, err := bot.GetStickerSet(ctx, &telego.GetStickerSetParams{
+		Name: setName,
+	})
+	if err != nil {
+		logger.ErrorCF("sticker", "Failed to get sticker set", map[string]any{
+			"set_name": setName,
+			"error":    err.Error(),
+		})
+		writeStickerError(w, http.StatusInternalServerError, "failed to get sticker set: "+err.Error())
+		return
+	}
+
+	// Get default LLM provider for auto-describing
+	provider, _, providerErr := providers.CreateProvider(h.cfg)
+
+	imported := 0
+	for _, tgSticker := range set.Stickers {
+		stickerID := fmt.Sprintf("%s_%d", setName, imported)
+
+		// Skip if already exists
+		if _, exists := h.store.GetByID(stickerID); exists {
+			imported++
+			continue
+		}
+
+		// Determine file ID and extension based on format
+		var targetFileID string
+		var ext string
+		if (tgSticker.IsAnimated || tgSticker.IsVideo) && tgSticker.Thumbnail != nil {
+			targetFileID = tgSticker.Thumbnail.FileID
+			ext = ".jpg"
+		} else {
+			targetFileID = tgSticker.FileID
+			ext = ".webp"
+		}
+
+		// Download the sticker file
+		localPath, err := h.downloadStickerFile(bot, ctx, targetFileID, ext, setName, imported)
+		if err != nil {
+			logger.WarnCF("sticker", "Failed to download sticker", map[string]any{
+				"set":   setName,
+				"index": imported,
+				"error": err.Error(),
+			})
+			imported++
+			continue
+		}
+
+		// Auto-generate description using default LLM
+		description := ""
+		usageScenarios := "适用于日常聊天中的相关场景"
+		if providerErr == nil && provider != nil {
+			description = h.autoDescribeSticker(ctx, provider, localPath)
+		}
+
+		// Build emoji hint
+		emojiHint := ""
+		if tgSticker.Emoji != "" {
+			emojiHint = tgSticker.Emoji
+		}
+
+		item := sticker.StickerItem{
+			ID:             stickerID,
+			SourceType:     sticker.SourceTelegramSet,
+			StickerSetName: setName,
+			FilePath:       localPath,
+			TelegramFileID: tgSticker.FileID,
+			EmojiHint:      emojiHint,
+			Description:    description,
+			UsageScenarios: usageScenarios,
+		}
+
+		if err := h.store.Add(item); err != nil {
+			logger.WarnCF("sticker", "Failed to add sticker to store", map[string]any{
+				"id":    stickerID,
+				"error": err.Error(),
+			})
+		}
+
+		imported++
+	}
+
+	json.NewEncoder(w).Encode(map[string]any{
+		"imported": imported,
+		"set_name": setName,
+	})
 }
 
 // handleDeleteSticker handles DELETE /api/telegram/stickers/delete
@@ -171,6 +277,97 @@ func (h *StickerAPIHandler) handleDeleteSticker(w http.ResponseWriter, r *http.R
 	}
 
 	json.NewEncoder(w).Encode(map[string]any{"deleted": id})
+}
+
+// getTelegramToken retrieves the Telegram bot token from config.
+func (h *StickerAPIHandler) getTelegramToken() string {
+	tgChannel := h.cfg.Channels.Get(config.ChannelTelegram)
+	if tgChannel == nil {
+		return ""
+	}
+
+	var settings config.TelegramSettings
+	if err := tgChannel.Settings.Decode(&settings); err != nil {
+		logger.WarnCF("sticker", "Failed to decode Telegram settings", map[string]any{
+			"error": err.Error(),
+		})
+		return ""
+	}
+
+	return settings.Token.String()
+}
+
+// downloadStickerFile downloads a sticker file from Telegram.
+func (h *StickerAPIHandler) downloadStickerFile(bot *telego.Bot, ctx context.Context, fileID, ext, setName string, index int) (string, error) {
+	file, err := bot.GetFile(ctx, &telego.GetFileParams{FileID: fileID})
+	if err != nil {
+		return "", fmt.Errorf("failed to get file: %w", err)
+	}
+
+	if file.FilePath == "" {
+		return "", fmt.Errorf("empty file path")
+	}
+
+	// Download the file
+	url := bot.FileDownloadURL(file.FilePath)
+	mediaDir := h.store.GetMediaDir()
+
+	filename := fmt.Sprintf("%s_%d%s", setName, index, ext)
+	dstPath := filepath.Join(mediaDir, filename)
+
+	// Download using HTTP
+	resp, err := http.Get(url)
+	if err != nil {
+		return "", fmt.Errorf("failed to download: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("download failed with status: %d", resp.StatusCode)
+	}
+
+	dst, err := os.Create(dstPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to create file: %w", err)
+	}
+	defer dst.Close()
+
+	if _, err := io.Copy(dst, resp.Body); err != nil {
+		return "", fmt.Errorf("failed to write file: %w", err)
+	}
+
+	return dstPath, nil
+}
+
+// autoDescribeSticker uses the default LLM to generate a description for a sticker.
+func (h *StickerAPIHandler) autoDescribeSticker(ctx context.Context, provider providers.LLMProvider, imagePath string) string {
+	imgData, err := os.ReadFile(imagePath)
+	if err != nil {
+		logger.WarnCF("sticker", "Failed to read image for description", map[string]any{
+			"error": err.Error(),
+		})
+		return ""
+	}
+
+	prompt := "你是一个表情包分析助手。请用一两句简练、生动、客观的话，描述这张表情包中角色的形象、表情动作、所传达的情绪，以及它适合用在什么聊天场景或语境中。直接返回描述，不要任何多余修饰。"
+
+	messages := []providers.Message{
+		{
+			Role:    "user",
+			Content: prompt,
+			Media:   []string{"data:image/webp;base64," + base64.StdEncoding.EncodeToString(imgData)},
+		},
+	}
+
+	response, err := provider.Chat(ctx, messages, nil, "", nil)
+	if err != nil {
+		logger.WarnCF("sticker", "Failed to generate sticker description", map[string]any{
+			"error": err.Error(),
+		})
+		return ""
+	}
+
+	return strings.TrimSpace(response.Content)
 }
 
 func writeStickerError(w http.ResponseWriter, code int, message string) {
