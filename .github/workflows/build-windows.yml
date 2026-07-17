@@ -54,14 +54,14 @@ jobs:
             ./web/backend
 
       - name: Upload picoclaw artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: picoclaw-windows-x64
           path: dist/picoclaw-windows-x64.exe
           retention-days: 7
 
       - name: Upload picoclaw-launcher artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: picoclaw-launcher-windows-x64
           path: dist/picoclaw-launcher-windows-x64.exe
@@ -115,14 +115,14 @@ jobs:
             ./web/backend
 
       - name: Upload picoclaw artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: picoclaw-linux-arm64
           path: dist/picoclaw-linux-arm64
           retention-days: 7
 
       - name: Upload picoclaw-launcher artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: picoclaw-launcher-linux-arm64
           path: dist/picoclaw-launcher-linux-arm64
