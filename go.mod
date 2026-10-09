@@ -1,6 +1,6 @@
 module github.com/sipeed/picoclaw
 
-go 1.25.11
+go 1.26.0
 
 require (
 	fyne.io/systray v1.12.1
@@ -45,7 +45,7 @@ require (
 	github.com/tencent-connect/botgo v0.2.1
 	go.mau.fi/util v0.9.8
 	go.mau.fi/whatsmeow v0.0.0-20260219150138-7ae702b1eed4
-	golang.org/x/oauth2 v0.36.0
+	golang.org/x/oauth2 v0.37.0
 	golang.org/x/term v0.44.0
 	golang.org/x/time v0.15.0
 	google.golang.org/protobuf v1.36.11
