@@ -65,7 +65,7 @@ jobs:
 
       # 7. Upload the DMG as a GitHub artifact
       - name: Upload DMG
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v6
         with:
           name: macos-dmg-${{ matrix.arch }}
           path: dist/*.dmg
