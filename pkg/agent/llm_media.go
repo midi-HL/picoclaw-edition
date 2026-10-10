@@ -155,7 +155,7 @@ func (p *Pipeline) describeVideoProxy(ts *turnState, exec *turnExecution) error 
 	firstCandidate := ts.agent.VideoCandidates[0]
 	if provider, err := providerForFallbackCandidate(
 		ts.agent, ts.agent.Provider, ts.agent.VideoCandidates,
-		firstCandidate.Provider, firstCandidate.Model,
+		firstCandidate,
 	); err == nil && provider != nil {
 		videoProvider = provider
 	}
@@ -264,9 +264,8 @@ func (p *Pipeline) routeMediaTurn(ts *turnState, exec *turnExecution) error {
 	if provider, err := providerForFallbackCandidate(
 		ts.agent,
 		ts.agent.Provider,
-		targetCandidates,
-		firstCandidate.Provider,
-		firstCandidate.Model,
+		ts.agent.Candidates,
+		firstCandidate,
 	); err != nil {
 		return err
 	} else if provider != nil {

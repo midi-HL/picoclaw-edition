@@ -19,7 +19,7 @@ import (
 
 func TestNewPicoClientChannel_MissingURL(t *testing.T) {
 	bc := &config.Channel{Type: config.ChannelPicoClient, Enabled: true}
-	_, err := NewPicoClientChannel(bc, &config.PicoClientSettings{}, bus.NewMessageBus())
+	_, err := NewPicoClientChannel(bc, &config.PicoClientSettings{}, bus.NewMessageBus(), 0)
 	if err == nil {
 		t.Fatal("expected error for missing URL")
 	}
@@ -32,7 +32,7 @@ func TestNewPicoClientChannel_OK(t *testing.T) {
 	bc := &config.Channel{Type: config.ChannelPicoClient, Enabled: true}
 	ch, err := NewPicoClientChannel(bc, &config.PicoClientSettings{
 		URL: "ws://localhost:9999/ws",
-	}, bus.NewMessageBus())
+	}, bus.NewMessageBus(), 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -45,7 +45,7 @@ func TestSend_NotRunning(t *testing.T) {
 	bc := &config.Channel{Type: config.ChannelPicoClient, Enabled: true}
 	ch, err := NewPicoClientChannel(bc, &config.PicoClientSettings{
 		URL: "ws://localhost:9999/ws",
-	}, bus.NewMessageBus())
+	}, bus.NewMessageBus(), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +114,7 @@ func TestClientChannel_ConnectAndSend(t *testing.T) {
 		SessionID:    "sess-1",
 		PingInterval: 60,
 		ReadTimeout:  10,
-	}, mb)
+	}, mb, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +145,7 @@ func TestClientChannel_AuthFailure(t *testing.T) {
 	ch, err := NewPicoClientChannel(bc, &config.PicoClientSettings{
 		URL:   wsURL(srv.URL),
 		Token: *config.NewSecureString("wrong-token"),
-	}, bus.NewMessageBus())
+	}, bus.NewMessageBus(), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,7 +171,7 @@ func TestClientChannel_ReceivesServerMessage(t *testing.T) {
 		URL:         wsURL(srv.URL),
 		SessionID:   "sess-echo",
 		ReadTimeout: 10,
-	}, mb)
+	}, mb, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,7 +214,7 @@ func TestClientChannel_StartTyping(t *testing.T) {
 		URL:         wsURL(srv.URL),
 		SessionID:   "sess-type",
 		ReadTimeout: 10,
-	}, bus.NewMessageBus())
+	}, bus.NewMessageBus(), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -243,7 +243,7 @@ func TestSend_ClosedConnection(t *testing.T) {
 		URL:         wsURL(srv.URL),
 		SessionID:   "sess-close",
 		ReadTimeout: 10,
-	}, bus.NewMessageBus())
+	}, bus.NewMessageBus(), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -276,7 +276,7 @@ func TestParseInlineImageMedia_Valid(t *testing.T) {
 		"media": []any{
 			"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+X2ioAAAAASUVORK5CYII=",
 		},
-	})
+	}, 0)
 	if err != nil {
 		t.Fatalf("parseInlineImageMedia() error = %v", err)
 	}
@@ -294,7 +294,7 @@ func TestParseInlineImageMedia_Attachments(t *testing.T) {
 				"url":  imageURL,
 			},
 		},
-	})
+	}, 0)
 	if err != nil {
 		t.Fatalf("parseInlineImageMedia() error = %v", err)
 	}
@@ -351,7 +351,7 @@ func newTestPicoClientChannel(t *testing.T) (*PicoClientChannel, *bus.MessageBus
 	bc := &config.Channel{Type: config.ChannelPicoClient, Enabled: true}
 	ch, err := NewPicoClientChannel(bc, &config.PicoClientSettings{
 		URL: "ws://localhost:8080/ws",
-	}, mb)
+	}, mb, 0)
 	if err != nil {
 		t.Fatalf("NewPicoClientChannel() error = %v", err)
 	}
@@ -446,7 +446,7 @@ func TestPicoClientChannel_HandleServerMessage_ForwardsTextWithDownloadAttachmen
 	bc := &config.Channel{Type: config.ChannelPicoClient, Enabled: true}
 	ch, err := NewPicoClientChannel(bc, &config.PicoClientSettings{
 		URL: "ws://localhost:8080/ws",
-	}, mb)
+	}, mb, 0)
 	if err != nil {
 		t.Fatalf("NewPicoClientChannel() error = %v", err)
 	}
@@ -487,7 +487,7 @@ func TestPicoClientChannel_HandleServerMessage_ForwardsTextWithInvalidMediaPaylo
 	bc := &config.Channel{Type: config.ChannelPicoClient, Enabled: true}
 	ch, err := NewPicoClientChannel(bc, &config.PicoClientSettings{
 		URL: "ws://localhost:8080/ws",
-	}, mb)
+	}, mb, 0)
 	if err != nil {
 		t.Fatalf("NewPicoClientChannel() error = %v", err)
 	}
@@ -573,7 +573,7 @@ func TestPicoClientChannel_HandleServerMessage_IgnoresThought(t *testing.T) {
 	bc := &config.Channel{Type: config.ChannelPicoClient, Enabled: true}
 	ch, err := NewPicoClientChannel(bc, &config.PicoClientSettings{
 		URL: "ws://localhost:8080/ws",
-	}, mb)
+	}, mb, 0)
 	if err != nil {
 		t.Fatalf("NewPicoClientChannel() error = %v", err)
 	}
@@ -601,7 +601,7 @@ func TestPicoClientChannel_HandleServerMessage_IgnoresLegacyThoughtBool(t *testi
 	bc := &config.Channel{Type: config.ChannelPicoClient, Enabled: true}
 	ch, err := NewPicoClientChannel(bc, &config.PicoClientSettings{
 		URL: "ws://localhost:8080/ws",
-	}, mb)
+	}, mb, 0)
 	if err != nil {
 		t.Fatalf("NewPicoClientChannel() error = %v", err)
 	}

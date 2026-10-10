@@ -1019,6 +1019,38 @@ func TestDefaultConfig_ChannelStreamingDisabled(t *testing.T) {
 	}
 }
 
+func TestDefaultConfig_DeltaChatExample(t *testing.T) {
+	cfg := DefaultConfig()
+
+	deltachat := cfg.Channels.Get(ChannelDeltaChat)
+	if deltachat == nil {
+		t.Fatal("DefaultConfig() missing deltachat channel")
+	}
+	if deltachat.Enabled {
+		t.Fatal("DefaultConfig().deltachat should be disabled")
+	}
+	if !deltachat.GroupTrigger.MentionOnly {
+		t.Fatal("DefaultConfig().deltachat should use mention-only group trigger")
+	}
+	decoded, err := deltachat.GetDecoded()
+	if err != nil {
+		t.Fatalf("deltachat GetDecoded() error = %v", err)
+	}
+	settings, ok := decoded.(*DeltaChatSettings)
+	if !ok {
+		t.Fatalf("deltachat settings type = %T, want *DeltaChatSettings", decoded)
+	}
+	if settings.Email != "@nine.testrun.org" {
+		t.Fatalf("DefaultConfig().deltachat.settings.email = %q, want @nine.testrun.org", settings.Email)
+	}
+	if settings.Password.String() != "" {
+		t.Fatal("DefaultConfig().deltachat.settings.password should be empty")
+	}
+	if settings.DisplayName == "" {
+		t.Fatal("DefaultConfig().deltachat.settings.display_name should be populated")
+	}
+}
+
 func TestValidateSingletonChannels_RejectsMultipleInstances(t *testing.T) {
 	channels := ChannelsConfig{
 		"pico1": &Channel{Enabled: true, Type: ChannelPico},
@@ -1435,7 +1467,7 @@ func TestLoadConfig_TypeErrorReportsFieldPath(t *testing.T) {
 	}
 }
 
-func TestLoadConfig_UnknownFieldsReportsExactPaths(t *testing.T) {
+func TestLoadConfig_UnknownFieldsAreTolerated(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.json")
 	raw := "{\n  \"version\": 2,\n  \"tools\": {\n    \"weeb\": {\n      \"enabled\": true\n    },\n    \"web\": {\n      \"fatch_limit_bytes\": 123\n    }\n  }\n}\n"
@@ -1443,12 +1475,14 @@ func TestLoadConfig_UnknownFieldsReportsExactPaths(t *testing.T) {
 		t.Fatalf("WriteFile() error: %v", err)
 	}
 
-	_, err := LoadConfig(configPath)
-	if err == nil {
-		t.Fatal("expected unknown field error, got nil")
+	// Unknown fields are reported as warnings (stderr) and ignored, so the
+	// config must still load successfully instead of failing hard.
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("expected unknown fields to be tolerated as warnings, got error %v", err)
 	}
-	if !strings.Contains(err.Error(), "tools.weeb") || !strings.Contains(err.Error(), "tools.web.fatch_limit_bytes") {
-		t.Fatalf("expected exact unknown field paths, got %q", err.Error())
+	if cfg == nil {
+		t.Fatal("expected non-nil config despite unknown fields")
 	}
 }
 

@@ -1386,8 +1386,8 @@ func (c *TelegramChannel) collectTelegramMessageParts(
 				emojiHint = fmt.Sprintf(" (关联的 Emoji: %s)", tgSticker.Emoji)
 			}
 
-			parts.content = append(parts.content, fmt.Sprintf("[用户发送了一张自定义贴纸%s]", emojiHint))
-			parts.content = append(parts.content, "[系统提示：用户向你发送了一张自定义表情包/贴纸，其图片已附带在多模态输入中。请结合图片画面内容、场景氛围以及用户的聊天上下文，精准理解此表情包所表达的情感、动作与梗，并在后续回应中做出符合你人设、自然且富有表现力的互动。]")
+			parts.content = append(parts.content, fmt.Sprintf("[用户发送了一张 Telegram 自定义贴纸%s]", emojiHint))
+			parts.content = append(parts.content, "[系统提示：这是用户从 Telegram 发送的一张「自定义表情包 / 贴纸」(Sticker)，不是用户拍摄或上传的普通照片。系统已把该贴纸的静态画面转换为图片并附在本次多模态输入中，仅供你理解其画面内容。请把它当作一种情绪 / 表情的表达方式，结合画面内容、Emoji 提示与聊天上下文，理解用户想传达的情绪、动作或梗，并据此做出自然、符合你人设的回应；不要把它当成需要识别、描述或分析的普通图片。]")
 		}
 	}
 

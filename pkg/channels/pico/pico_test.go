@@ -27,7 +27,7 @@ func newTestPicoChannel(t *testing.T) *PicoChannel {
 	bc := &config.Channel{Type: config.ChannelPico, Enabled: true}
 	cfg := &config.PicoSettings{}
 	cfg.SetToken("test-token")
-	ch, err := NewPicoChannel(bc, cfg, bus.NewMessageBus())
+	ch, err := NewPicoChannel(bc, cfg, bus.NewMessageBus(), 0)
 	if err != nil {
 		t.Fatalf("NewPicoChannel: %v", err)
 	}
@@ -41,7 +41,7 @@ func TestHandleMessageSend_ForwardsMessageMetadata(t *testing.T) {
 	bc := &config.Channel{Type: config.ChannelPico, Enabled: true}
 	cfg := &config.PicoSettings{}
 	cfg.SetToken("test-token")
-	ch, err := NewPicoChannel(bc, cfg, msgBus)
+	ch, err := NewPicoChannel(bc, cfg, msgBus, 0)
 	if err != nil {
 		t.Fatalf("NewPicoChannel: %v", err)
 	}
