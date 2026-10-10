@@ -16,6 +16,8 @@ This is the primary documentation for this fork (`picoclaw-edition`). It describ
 - [6. Config Robustness](#6-config-robustness)
 - [7. API Changes](#7-api-changes)
 - [8. 32-bit Platform Support](#8-32-bit-platform-support)
+- [9. Telegram Stickers (Custom Emoji Packs)](#9-telegram-stickers-custom-emoji-packs)
+- [10. Security](#10-security)
 - [Known Limitations](#known-limitations)
 
 ---
@@ -265,6 +267,67 @@ make build-all
 | RAM | 512 MB |
 | Disk | 100 MB (binary) + workspace storage |
 | Network | Internet access for LLM API calls |
+
+---
+
+## 9. Telegram Stickers (Custom Emoji Packs)
+
+This fork adds **bidirectional** Telegram sticker support.
+
+### Inbound — user sends a sticker to the AI
+
+When a user sends a Telegram sticker, the bot now forwards it to the model as a
+real image so the AI can *see* and understand it.
+
+**Problem:** User-sent images are normally turned into a path tag (`[image:/path]`)
+by `resolveMediaRefs`, and the image bytes are **not** sent to the model — the
+model is expected to call the `load_image` tool if it wants to look. Stickers were
+therefore invisible to the model (it only saw a path), so it could not react to them.
+
+**Fix (`pkg/channels/telegram/telegram.go`):**
+- The sticker is downloaded (animated/video stickers are downgraded to their static
+  `.jpg` thumbnail; regular stickers use `.webp`).
+- The file is registered in the media store (for cleanup/reference) **and** encoded
+  inline as a `data:image/...;base64,` URL, which is passed through `resolveMediaRefs`
+  unchanged and serialized by the provider as a standard `image_url` part.
+- The message text carries an explicit system hint telling the model that this is a
+  **Telegram sticker / custom emoji pack**, *not* a photo the user uploaded, and that
+  the picture is provided directly (it should react to the emotion, not describe it).
+
+### Outbound — AI sends a sticker
+
+The AI can send a sticker by emitting a `[SEND_STICKER: <StickerID>]` marker; the
+channel intercepts it, strips it from the text, and sends the sticker from the local
+sticker store (via Telegram `file_id` when known, otherwise by uploading the file and
+caching the returned `file_id`). The available sticker list is injected into the system
+prompt by `pkg/agent/sticker_prompt.go`. Sticker packs are managed through the Launcher
+web UI (`pkg/gateway/sticker_api.go`, `pkg/sticker/`).
+
+> The AI can send individual stickers from the managed packs; it cannot create or
+> import arbitrary sticker packs on its own.
+
+---
+
+## 10. Security
+
+### Dependency vulnerability fixes
+
+The synced upstream pinned Go `1.25.13` and `golang.org/x/net v0.55.0`, which are
+affected by 11 known advisories (Go standard library + `x/net`, fixed in Go `1.26.9`
+and `x/net v0.60.0`). This fork upgrades:
+
+- `go 1.26.9` (in `go.mod`; CI installs it via `go-version-file: go.mod`)
+- `golang.org/x/net v0.60.0`, plus matching `x/crypto`, `x/sys`, `x/term`, `x/text`, `x/sync`
+
+`govulncheck ./...` now reports **no vulnerabilities**.
+
+### Credential hygiene
+
+The upstream repository's history contains hard-coded third-party OAuth client
+credentials. This fork keeps **placeholders** (`YOUR_GOOGLE_CLIENT_ID_BASE64`) in
+`pkg/auth/oauth.go` and the Antigravity docs, and the upstream code is synced as a
+**single squashed commit** so those credential-bearing commits never enter this
+repository's history.
 
 ---
 

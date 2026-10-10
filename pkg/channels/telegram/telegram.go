@@ -3,6 +3,7 @@ package telegram
 import (
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -1365,29 +1366,41 @@ func (c *TelegramChannel) collectTelegramMessageParts(
 		tgSticker := msg.Sticker
 		var targetFileID string
 		var ext string
+		var stickerMIME string
 
 		// Format downgrade: animated/video stickers use their static thumbnail
 		if (tgSticker.IsAnimated || tgSticker.IsVideo) && tgSticker.Thumbnail != nil {
 			targetFileID = tgSticker.Thumbnail.FileID
 			ext = ".jpg"
+			stickerMIME = "image/jpeg"
 		} else {
 			targetFileID = tgSticker.FileID
 			ext = ".webp"
+			stickerMIME = "image/webp"
 		}
 
 		stickerPath := c.downloadFile(ctx, targetFileID, ext)
 		if stickerPath != "" {
+			// Register the file in the media store so it can be cleaned up and
+			// referenced elsewhere, and ALSO pass the sticker image to the model
+			// directly as a data URL. Sticker images must reach the multimodal
+			// model inline (like user audio/video); otherwise the model only sees
+			// a path tag and cannot "see" the sticker at all.
 			stickerFilename := fmt.Sprintf("sticker-%s%s", tgSticker.FileID, ext)
 			parts.mediaPaths = append(parts.mediaPaths, storeMedia(stickerPath, stickerFilename))
+
+			if dataURL := fileToDataURL(stickerPath, stickerMIME); dataURL != "" {
+				parts.mediaPaths = append(parts.mediaPaths, dataURL)
+			}
 
 			// Build emoji hint for the model
 			emojiHint := ""
 			if tgSticker.Emoji != "" {
-				emojiHint = fmt.Sprintf(" (关联的 Emoji: %s)", tgSticker.Emoji)
+				emojiHint = fmt.Sprintf("（关联 Emoji：%s）", tgSticker.Emoji)
 			}
 
 			parts.content = append(parts.content, fmt.Sprintf("[用户发送了一张 Telegram 自定义贴纸%s]", emojiHint))
-			parts.content = append(parts.content, "[系统提示：这是用户从 Telegram 发送的一张「自定义表情包 / 贴纸」(Sticker)，不是用户拍摄或上传的普通照片。系统已把该贴纸的静态画面转换为图片并附在本次多模态输入中，仅供你理解其画面内容。请把它当作一种情绪 / 表情的表达方式，结合画面内容、Emoji 提示与聊天上下文，理解用户想传达的情绪、动作或梗，并据此做出自然、符合你人设的回应；不要把它当成需要识别、描述或分析的普通图片。]")
+			parts.content = append(parts.content, "[系统提示：这是用户从 Telegram 发送的一张「自定义表情包 / 贴纸」(Sticker)，不是用户拍摄或上传的普通照片。该贴纸的静态画面已作为图片直接提供给你（多模态输入），请把它当作一种情绪 / 表情的表达方式，结合画面内容、Emoji 提示与聊天上下文，理解用户想传达的情绪、动作或梗，并据此做出自然、符合你人设的回应；不要把它当成需要识别、描述或分析的普通图片。]")
 		}
 	}
 
@@ -1399,6 +1412,20 @@ func indexedMediaFilename(prefix, ext string, index int, total int) string {
 		return prefix + ext
 	}
 	return fmt.Sprintf("%s-%d%s", prefix, index+1, ext)
+}
+
+// fileToDataURL reads a local file and encodes it as a base64 data URL with the
+// given MIME type. Returns an empty string on any error. Used to pass sticker
+// images to the multimodal model inline.
+func fileToDataURL(path, mime string) string {
+	if strings.TrimSpace(path) == "" || strings.TrimSpace(mime) == "" {
+		return ""
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || len(data) == 0 {
+		return ""
+	}
+	return "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(data)
 }
 
 func (c *TelegramChannel) prependTelegramQuotedReply(content string, reply *telego.Message) string {

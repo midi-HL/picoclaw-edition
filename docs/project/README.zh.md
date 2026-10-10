@@ -15,8 +15,10 @@
 - [5. 音频 Data URL 编码](#5-音频-data-url-编码)
 - [6. 配置健壮性](#6-配置健壮性)
 - [7. API 变更](#7-api-变更)
-- [已知限制](#已知限制)
 - [8. 32 位平台支持](#8-32-位平台支持)
+- [9. Telegram 贴纸（自定义表情包）](#9-telegram-贴纸自定义表情包)
+- [10. 安全性](#10-安全性)
+- [已知限制](#已知限制)
 
 ---
 
@@ -265,6 +267,46 @@ make build-all
 | 内存 | 512 MB |
 | 磁盘 | 100 MB（二进制文件）+ 工作空间存储 |
 | 网络 | 需要互联网访问以调用 LLM API |
+
+---
+
+## 9. Telegram 贴纸（自定义表情包）
+
+本 Fork 新增 **双向** Telegram 贴纸支持。
+
+### 接收方向 —— 用户给 AI 发贴纸
+
+用户发送 Telegram 贴纸时，机器人会把它作为真实图片转发给模型，让 AI 能够**看到并理解**贴纸。
+
+**问题：** 用户发送的图片通常会被 `resolveMediaRefs` 转成路径标签（`[image:/path]`），图片数据**不会**发给模型——模型需自行调用 `load_image` 工具查看。因此贴纸对模型不可见（只看到路径），无法对贴纸做出反应。
+
+**修复（`pkg/channels/telegram/telegram.go`）：**
+- 下载贴纸（动画/视频贴纸降级为其静态 `.jpg` 缩略图；普通贴纸用 `.webp`）。
+- 文件注册进媒体存储（用于清理/引用），**同时**内联编码为 `data:image/...;base64,` URL，该引用经 `resolveMediaRefs` 原样透传，最终由 provider 序列化为标准 `image_url` 部分。
+- 消息文本附带明确的系统提示，告知模型这是一张 **Telegram 贴纸 / 自定义表情包**，*不是*用户上传的照片，且图片已直接提供（应针对情绪做反应，而非描述图片）。
+
+### 发送方向 —— AI 发贴纸
+
+AI 可输出 `[SEND_STICKER: <StickerID>]` 标记来发送贴纸；频道会拦截该标记、从文本中剥离，并从本地贴纸库发送（已知 `file_id` 时直接发送，否则上传文件并缓存返回的 `file_id`）。可用贴纸列表由 `pkg/agent/sticker_prompt.go` 注入系统提示词。贴纸包通过 Launcher Web 界面管理（`pkg/gateway/sticker_api.go`、`pkg/sticker/`）。
+
+> AI 可以从已管理的贴纸包中发送单张贴纸；但它无法自行创建或导入任意贴纸包。
+
+---
+
+## 10. 安全性
+
+### 依赖漏洞修复
+
+同步的上游锁定了 Go `1.25.13` 与 `golang.org/x/net v0.55.0`，受 11 个已知安全公告影响（Go 标准库 + `x/net`，已在 Go `1.26.9` 与 `x/net v0.60.0` 修复）。本 Fork 升级：
+
+- `go 1.26.9`（写入 `go.mod`；CI 通过 `go-version-file: go.mod` 安装）
+- `golang.org/x/net v0.60.0`，并同步升级 `x/crypto`、`x/sys`、`x/term`、`x/text`、`x/sync`
+
+`govulncheck ./...` 现在报告 **无漏洞**。
+
+### 凭据卫生
+
+上游仓库历史中含硬编码的第三方 OAuth 客户端凭据。本 Fork 在 `pkg/auth/oauth.go` 及 Antigravity 文档中保留**占位符**（`YOUR_GOOGLE_CLIENT_ID_BASE64`），并以**单个压缩提交**同步上游代码，使那些携带凭据的提交不会进入本仓库历史。
 
 ---
 
