@@ -11,7 +11,7 @@
 - [1. MiMo 多模态支持](#1-mimo-多模态支持)
 - [2. 视频理解](#2-视频理解)
 - [3. Telegram 视频消息](#3-telegram-视频消息)
-- [4. load_video 工具](#4-load_video-工具)
+- [4. load\_video 工具](#4-load_video-工具)
 - [5. 音频 Data URL 编码](#5-音频-data-url-编码)
 - [6. 配置健壮性](#6-配置健壮性)
 - [7. API 变更](#7-api-变更)
@@ -47,6 +47,7 @@ func SerializeMessages(messages []Message) []any
 ```
 
 **Provider 检测逻辑：**
+
 ```go
 func isMiMoProvider(opts *SerializeOptions) bool {
     return opts.ProviderName == "mimo" ||
@@ -55,6 +56,7 @@ func isMiMoProvider(opts *SerializeOptions) bool {
 ```
 
 **调用链：**
+
 ```
 openai_compat.Provider.buildRequestBody()
   → 传递 p.providerName + p.apiBase 作为 SerializeOptions
@@ -63,20 +65,22 @@ openai_compat.Provider.buildRequestBody()
 
 ### 按 Provider 的格式选择
 
-| 媒体类型 | MiMo Provider | 标准 OpenAI Provider |
-|---------|--------------|---------------------|
-| **图片** | `{"type": "image_url", "image_url": {"url": "data:image/..."}}` | 相同（通用格式） |
-| **音频** | `{"type": "input_audio", "input_audio": {"data": "data:audio/wav;base64,..."}}` | `{"type": "input_audio", "input_audio": {"data": "base64...", "format": "wav"}}` |
-| **视频** | `{"type": "video_url", "video_url": {"url": "data:video/mp4;base64,..."}, "fps": 2, "media_resolution": "default"}` | 跳过（无标准类型） |
+| 媒体类型   | MiMo Provider                                                                                                       | 标准 OpenAI Provider                                                               |
+| ------ | ------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| **图片** | `{"type": "image_url", "image_url": {"url": "data:image/..."}}`                                                     | 相同（通用格式）                                                                         |
+| **音频** | `{"type": "input_audio", "input_audio": {"data": "data:audio/wav;base64,..."}}`                                     | `{"type": "input_audio", "input_audio": {"data": "base64...", "format": "wav"}}` |
+| **视频** | `{"type": "video_url", "video_url": {"url": "data:video/mp4;base64,..."}, "fps": 2, "media_resolution": "default"}` | 跳过（无标准类型）                                                                        |
 
 ### 关键差异说明
 
 **音频格式拆分：**
+
 - MiMo 要求 **完整 data URL**（`data:audio/wav;base64,...`）放在 `data` 字段，无 `format` 字段
 - 标准 OpenAI 要求 **纯 base64** 放在 `data`，MIME 子类型放在单独的 `format` 字段
 - 代码使用 `ParseDataAudioURL()` 解析 data URL 以提取两部分
 
 **视频格式：**
+
 - `video_url` 是 MiMo 专用类型，包含 `fps` 和 `media_resolution` 参数
 - 标准 OpenAI 无视频类型 — 非 MiMo provider 会静默跳过视频
 - 回退方案：`video_model` 代理转述可为不支持视频的模型描述视频内容
@@ -94,6 +98,7 @@ openai_compat.Provider.buildRequestBody()
 **问题：** `video_model` 配置字段存在但从未被 agent 代码使用。
 
 **修改内容：**
+
 - `pkg/agent/instance.go` — `AgentInstance` 新增 `VideoCandidates` 字段，启动时解析 `video_model` 候选。
 - `pkg/agent/llm_media.go` — 新增 `describeVideoProxy()` 函数，实现**代理转述模式**：
   1. 检测当前 turn 中的 `data:video/` URL
@@ -103,6 +108,7 @@ openai_compat.Provider.buildRequestBody()
 - `pkg/agent/llm_media.go` — `routeMediaTurn` 在回退到 image model 路由之前先调用 `describeVideoProxy`。
 
 **流程：**
+
 ```
 用户发送视频
   → video_model 描述视频
@@ -117,6 +123,7 @@ openai_compat.Provider.buildRequestBody()
 **问题：** `collectTelegramMessageParts` 处理了 Photo、Voice、Audio 和 Document，但没有处理 Video。视频消息被静默丢弃。
 
 **修改内容：**
+
 - `pkg/channels/telegram/telegram.go` — 新增 `msg.Video` 处理：下载视频文件、存入 media store、在消息内容中添加 `[video]` 标签。
 
 ---
@@ -126,6 +133,7 @@ openai_compat.Provider.buildRequestBody()
 **新功能：** 允许 AI 加载和分析本地视频文件的工具。
 
 **相关文件：**
+
 - `pkg/tools/fs/load_video.go` — 新工具实现（与 `load_image` 同构）。
 - `pkg/tools/fs_facade.go` — 新增 `LoadVideoTool` 类型别名和 `NewLoadVideoTool` 工厂函数。
 - `pkg/agent/agent_init.go` — 注册 `load_video` 工具。
@@ -133,6 +141,7 @@ openai_compat.Provider.buildRequestBody()
 - `pkg/agent/context.go` — 更新多模态系统提示词，提及 `load_video`。
 
 **工作原理：**
+
 1. AI 调用 `load_video(path="video.mp4")`
 2. 工具验证路径、检测 MIME 类型、存入 media store
 3. 返回 `media://` 引用
@@ -146,6 +155,7 @@ openai_compat.Provider.buildRequestBody()
 **问题：** 用户消息中的音频未被编码为 data URL。
 
 **修改内容：**
+
 - `pkg/agent/agent_media.go` — `resolveMediaRefs` 现在为用户消息和工具结果中的音频/视频编码为 data URL。
 - `pkg/agent/prompt_turn.go` — `toolImageFollowUpPromptMessage` 检测视频 data URL 并相应更新合成用户消息文本。
 
@@ -158,6 +168,7 @@ openai_compat.Provider.buildRequestBody()
 **问题：** 包含已弃用字段的配置文件（如旧版本）导致启动失败。
 
 **修改内容：**
+
 - `pkg/config/diagnostics.go` — `decodeJSONWithDiagnostics` 现在将未知字段记录为 stderr 警告，而不是返回错误。
 
 ### 配置 API 请求体限制
@@ -165,6 +176,7 @@ openai_compat.Provider.buildRequestBody()
 **问题：** PATCH/PUT `/api/config` 端点的请求体限制为 1MB，对于 base64 编码的音色复刻音频数据来说太小。
 
 **修改内容：**
+
 - `web/backend/api/config.go` — PUT 和 PATCH 处理器的请求体限制从 1MB 提高到 20MB。
 
 ### VoiceConfig MimoConfig 字段
@@ -172,6 +184,7 @@ openai_compat.Provider.buildRequestBody()
 **问题：** Go 的 `VoiceConfig` 结构体没有 `MimoConfig` 字段，导致 MiMo 特定设置在 JSON 序列化/反序列化时丢失。
 
 **修改内容：**
+
 - `pkg/config/config.go` — 新增 `VoiceMimoConfig` 结构体，包含 ASR 字段（`asr_provider`、`asr_language`、`asr_api_key`）。
 
 ---
@@ -182,9 +195,9 @@ openai_compat.Provider.buildRequestBody()
 
 ### 聊天 API
 
-| 端点 | 方法 | 说明 |
-|------|------|------|
-| `/api/chat` | POST | 同步聊天 — 发送消息，接收完整回复 |
+| 端点                 | 方法   | 说明                     |
+| ------------------ | ---- | ---------------------- |
+| `/api/chat`        | POST | 同步聊天 — 发送消息，接收完整回复     |
 | `/api/chat/stream` | POST | 流式聊天 — SSE 实时 token 输出 |
 
 ### 新工具：load_video
@@ -192,6 +205,7 @@ openai_compat.Provider.buildRequestBody()
 `load_video` 工具注册为 AI agent 的可调用工具。接受文件路径参数，返回视频分析引用。
 
 **工具参数：**
+
 ```json
 {
   "path": "path/to/video.mp4"
@@ -199,6 +213,7 @@ openai_compat.Provider.buildRequestBody()
 ```
 
 **工具结果：**
+
 ```
 Video loaded: video.mp4
 [video: /path/to/video.mp4]
@@ -214,13 +229,13 @@ Video loaded: video.mp4
 
 ### 支持的 32 位目标平台
 
-| 操作系统 | GOARCH | 二进制文件名 | 最低系统版本 |
-|---------|--------|-------------|------------|
-| Linux | `386` | `picoclaw-linux-386` | 任何内核 2.6+ 的 32 位 Linux |
-| Linux | `arm` (GOARM=7) | `picoclaw-linux-arm` | ARMv7 Linux（如树莓派） |
-| Linux | `mipsle` | `picoclaw-linux-mipsle` | MIPS32 小端序 Linux（软浮点） |
-| Linux | `mips` | `picoclaw-linux-mips` | MIPS32 大端序 Linux（软浮点） |
-| Windows | `386` | `picoclaw-windows-386.exe` | Windows XP SP3 / Vista / 7 / 8 / 8.1 / 10 (32 位) |
+| 操作系统    | GOARCH          | 二进制文件名                     | 最低系统版本                                           |
+| ------- | --------------- | -------------------------- | ------------------------------------------------ |
+| Linux   | `386`           | `picoclaw-linux-386`       | 任何内核 2.6+ 的 32 位 Linux                           |
+| Linux   | `arm` (GOARM=7) | `picoclaw-linux-arm`       | ARMv7 Linux（如树莓派）                                |
+| Linux   | `mipsle`        | `picoclaw-linux-mipsle`    | MIPS32 小端序 Linux（软浮点）                            |
+| Linux   | `mips`          | `picoclaw-linux-mips`      | MIPS32 大端序 Linux（软浮点）                            |
+| Windows | `386`           | `picoclaw-windows-386.exe` | Windows XP SP3 / Vista / 7 / 8 / 8.1 / 10 (32 位) |
 
 ### 修改内容
 
@@ -261,12 +276,12 @@ make build-all
 
 ### 运行时系统要求
 
-| 资源 | 最低要求 |
-|-----|---------|
-| CPU | 任何支持 SSE2 的 x86 处理器 |
-| 内存 | 512 MB |
-| 磁盘 | 100 MB（二进制文件）+ 工作空间存储 |
-| 网络 | 需要互联网访问以调用 LLM API |
+| 资源  | 最低要求                  |
+| --- | --------------------- |
+| CPU | 任何支持 SSE2 的 x86 处理器   |
+| 内存  | 512 MB                |
+| 磁盘  | 100 MB（二进制文件）+ 工作空间存储 |
+| 网络  | 需要互联网访问以调用 LLM API    |
 
 ---
 
@@ -280,10 +295,11 @@ make build-all
 
 **问题：** 用户发送的图片通常会被 `resolveMediaRefs` 转成路径标签（`[image:/path]`），图片数据**不会**发给模型——模型需自行调用 `load_image` 工具查看。因此贴纸对模型不可见（只看到路径），无法对贴纸做出反应。
 
-**修复（`pkg/channels/telegram/telegram.go`）：**
-- 下载贴纸（动画/视频贴纸降级为其静态 `.jpg` 缩略图；普通贴纸用 `.webp`）。
-- 文件注册进媒体存储（用于清理/引用），**同时**内联编码为 `data:image/...;base64,` URL，该引用经 `resolveMediaRefs` 原样透传，最终由 provider 序列化为标准 `image_url` 部分。
-- 消息文本附带明确的系统提示，告知模型这是一张 **Telegram 贴纸 / 自定义表情包**，*不是*用户上传的照片，且图片已直接提供（应针对情绪做反应，而非描述图片）。
+**修复：**
+
+- `pkg/channels/telegram/telegram.go` —— 下载贴纸（动画/视频贴纸降级为其静态 `.jpg` 缩略图；普通贴纸用 `.webp`），并**以专用来源标记**（`media.SourceTelegramSticker`）注册进媒体存储。消息文本附带明确的系统提示，告知模型这是一张 **Telegram 贴纸 / 自定义表情包**，*不是*用户上传的照片。
+- `pkg/agent/agent_media.go` —— `resolveMediaRefs` 在**当前轮**把**贴纸**媒体（以及用户语音/视频）内联为 `data:...;base64,` URL，MIME 取自文件 magic bytes。普通用户图片保持上游行为（仅路径标签 + 按需 `load_image`），因此大图不会被重复内联发送。
+- 健壮性 —— 媒体引用会被**持久化进会话历史**，所以内联 base64 绝不能存进历史（否则每轮都会重发、越来越臃肿）。贴纸以小的引用存储、仅在发送时内联；此外 `resolveMediaRefs` 会丢弃**历史轮次**中的内联 `data:` 引用，可自动修复被旧版本污染的会话。
 
 ### 发送方向 —— AI 发贴纸
 

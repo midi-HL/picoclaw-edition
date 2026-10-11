@@ -3,7 +3,6 @@ package telegram
 import (
 	"context"
 	"crypto/rand"
-	"encoding/base64"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -1159,12 +1158,17 @@ func (c *TelegramChannel) handleMessages(ctx context.Context, messages []*telego
 	messageIDStr := fmt.Sprintf("%d", message.MessageID)
 	scope := channels.BuildMediaScope("telegram", chatIDStr, messageIDStr)
 
-	// Helper to register a local file with the media store
-	storeMedia := func(localPath, filename string) string {
+	// Helper to register a local file with the media store. An optional source
+	// can be supplied to tag special media (e.g. stickers).
+	storeMedia := func(localPath, filename string, source ...string) string {
+		src := "telegram"
+		if len(source) > 0 && strings.TrimSpace(source[0]) != "" {
+			src = source[0]
+		}
 		if store := c.GetMediaStore(); store != nil {
 			ref, err := store.Store(localPath, media.MediaMeta{
 				Filename:      filename,
-				Source:        "telegram",
+				Source:        src,
 				CleanupPolicy: media.CleanupPolicyDeleteOnCleanup,
 			}, scope)
 			if err == nil {
@@ -1173,6 +1177,9 @@ func (c *TelegramChannel) handleMessages(ctx context.Context, messages []*telego
 		}
 		return localPath // fallback: use raw path
 	}
+
+	// storeStickerMedia registers sticker media tagged with a dedicated source so
+	// the agent can inline it (see media.SourceTelegramSticker).
 
 	for i, msg := range messages {
 		if msg == nil {
@@ -1289,7 +1296,7 @@ func (c *TelegramChannel) collectTelegramMessageParts(
 	msg *telego.Message,
 	index int,
 	total int,
-	storeMedia func(localPath, filename string) string,
+	storeMedia func(localPath, filename string, source ...string) string,
 ) telegramMessageParts {
 	parts := telegramMessageParts{}
 	if msg == nil {
@@ -1366,32 +1373,27 @@ func (c *TelegramChannel) collectTelegramMessageParts(
 		tgSticker := msg.Sticker
 		var targetFileID string
 		var ext string
-		var stickerMIME string
 
 		// Format downgrade: animated/video stickers use their static thumbnail
 		if (tgSticker.IsAnimated || tgSticker.IsVideo) && tgSticker.Thumbnail != nil {
 			targetFileID = tgSticker.Thumbnail.FileID
 			ext = ".jpg"
-			stickerMIME = "image/jpeg"
 		} else {
 			targetFileID = tgSticker.FileID
 			ext = ".webp"
-			stickerMIME = "image/webp"
 		}
 
 		stickerPath := c.downloadFile(ctx, targetFileID, ext)
 		if stickerPath != "" {
-			// Register the file in the media store so it can be cleaned up and
-			// referenced elsewhere, and ALSO pass the sticker image to the model
-			// directly as a data URL. Sticker images must reach the multimodal
-			// model inline (like user audio/video); otherwise the model only sees
-			// a path tag and cannot "see" the sticker at all.
+			// Register the file in the media store tagged as a sticker. The
+			// agent's resolveMediaRefs inlines sticker media (as a data URL) for
+			// the current turn so the multimodal model can actually "see" it.
+			// We intentionally do NOT embed the data URL here: media refs are
+			// persisted into session history, and an inline base64 blob would be
+			// re-sent (and re-bloated) on every later turn.
 			stickerFilename := fmt.Sprintf("sticker-%s%s", tgSticker.FileID, ext)
-			parts.mediaPaths = append(parts.mediaPaths, storeMedia(stickerPath, stickerFilename))
-
-			if dataURL := fileToDataURL(stickerPath, stickerMIME); dataURL != "" {
-				parts.mediaPaths = append(parts.mediaPaths, dataURL)
-			}
+			stickerRef := storeMedia(stickerPath, stickerFilename, media.SourceTelegramSticker)
+			parts.mediaPaths = append(parts.mediaPaths, stickerRef)
 
 			// Build emoji hint for the model
 			emojiHint := ""
@@ -1412,20 +1414,6 @@ func indexedMediaFilename(prefix, ext string, index int, total int) string {
 		return prefix + ext
 	}
 	return fmt.Sprintf("%s-%d%s", prefix, index+1, ext)
-}
-
-// fileToDataURL reads a local file and encodes it as a base64 data URL with the
-// given MIME type. Returns an empty string on any error. Used to pass sticker
-// images to the multimodal model inline.
-func fileToDataURL(path, mime string) string {
-	if strings.TrimSpace(path) == "" || strings.TrimSpace(mime) == "" {
-		return ""
-	}
-	data, err := os.ReadFile(path)
-	if err != nil || len(data) == 0 {
-		return ""
-	}
-	return "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(data)
 }
 
 func (c *TelegramChannel) prependTelegramQuotedReply(content string, reply *telego.Message) string {

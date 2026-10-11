@@ -6675,6 +6675,53 @@ func TestResolveMediaRefs_ImageInjectsPathTag(t *testing.T) {
 	}
 }
 
+func TestResolveMediaRefs_StickerImageInlinedAsDataURL(t *testing.T) {
+	store := media.NewFileMediaStore()
+	dir := t.TempDir()
+
+	pngPath := filepath.Join(dir, "sticker.png")
+	pngHeader := []byte{
+		0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+		0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+		0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02,
+		0x00, 0x00, 0x00, 0x90, 0x77, 0x53, 0xDE,
+	}
+	if err := os.WriteFile(pngPath, pngHeader, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Sticker media is tagged with a dedicated source so it is inlined, unlike
+	// regular user images which stay as path tags.
+	ref, _ := store.Store(pngPath, media.MediaMeta{Source: media.SourceTelegramSticker}, "test")
+
+	messages := []providers.Message{
+		{Role: "user", Content: "sticker [image]", Media: []string{ref}},
+	}
+	result := resolveMediaRefs(messages, store, config.DefaultMaxMediaSize, 0)
+
+	if len(result[0].Media) != 1 || !strings.HasPrefix(result[0].Media[0], "data:image/png;base64,") {
+		t.Fatalf("expected 1 inlined sticker data URL, got %#v", result[0].Media)
+	}
+}
+
+func TestResolveMediaRefs_HistoricalDataURLDropped(t *testing.T) {
+	store := media.NewFileMediaStore()
+
+	// Simulate a session polluted by an earlier build that persisted inline
+	// base64 blobs into media refs. Historical turns must drop them so later
+	// turns neither re-send nor re-bloat.
+	blob := "data:image/png;base64,AAAA"
+	messages := []providers.Message{
+		{Role: "user", Content: "old sticker [image]", Media: []string{blob}},
+		{Role: "assistant", Content: "ok"},
+		{Role: "user", Content: "new question"},
+	}
+	result := resolveMediaRefs(messages, store, config.DefaultMaxMediaSize, 2)
+
+	if len(result[0].Media) != 0 {
+		t.Fatalf("expected historical data URL to be dropped, got %#v", result[0].Media)
+	}
+}
+
 func TestResolveMediaRefs_ToolRoleImageAppendedAsUserMessage(t *testing.T) {
 	store := media.NewFileMediaStore()
 	dir := t.TempDir()

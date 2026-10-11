@@ -284,15 +284,23 @@ by `resolveMediaRefs`, and the image bytes are **not** sent to the model — the
 model is expected to call the `load_image` tool if it wants to look. Stickers were
 therefore invisible to the model (it only saw a path), so it could not react to them.
 
-**Fix (`pkg/channels/telegram/telegram.go`):**
-- The sticker is downloaded (animated/video stickers are downgraded to their static
-  `.jpg` thumbnail; regular stickers use `.webp`).
-- The file is registered in the media store (for cleanup/reference) **and** encoded
-  inline as a `data:image/...;base64,` URL, which is passed through `resolveMediaRefs`
-  unchanged and serialized by the provider as a standard `image_url` part.
-- The message text carries an explicit system hint telling the model that this is a
-  **Telegram sticker / custom emoji pack**, *not* a photo the user uploaded, and that
-  the picture is provided directly (it should react to the emotion, not describe it).
+**Fix:**
+- `pkg/channels/telegram/telegram.go` — the sticker is downloaded (animated/video
+  stickers are downgraded to their static `.jpg` thumbnail; regular stickers use
+  `.webp`) and registered in the media store **tagged with a dedicated source**
+  (`media.SourceTelegramSticker`). The message text carries an explicit system hint
+  telling the model that this is a **Telegram sticker / custom emoji pack**, *not* a
+  photo the user uploaded.
+- `pkg/agent/agent_media.go` — `resolveMediaRefs` inlines **sticker** media (and
+  user audio/video) as `data:...;base64,` URLs for the current turn, using the MIME
+  detected from the file's magic bytes. Regular user images keep the upstream
+  behaviour (path tag only + on-demand `load_image`), so large photos are never
+  re-sent inline.
+- Robustness — media refs are **persisted into session history**, so an inline
+  base64 blob must never be stored there (it would be re-sent, and re-bloated, on
+  every later turn). Stickers are stored as small refs and only inlined at send
+  time; additionally, `resolveMediaRefs` drops any inline `data:` ref found in
+  **historical** turns, which self-heals sessions polluted by earlier builds.
 
 ### Outbound — AI sends a sticker
 

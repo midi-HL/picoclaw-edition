@@ -93,6 +93,14 @@ func resolveMediaRefs(
 		var pathTags []string
 
 		for _, ref := range m.Media {
+			// Self-heal: drop inline data URLs from *historical* turns. Earlier
+			// builds embedded large base64 blobs directly into media refs, which
+			// then got persisted into session history and re-sent (and re-bloated)
+			// on every later turn. Current-turn media is re-inlined below with a
+			// freshly detected MIME type.
+			if idx < currentTurnStart && strings.HasPrefix(ref, "data:") {
+				continue
+			}
 			if !strings.HasPrefix(ref, "media://") {
 				resolved = append(resolved, ref)
 				continue
@@ -138,12 +146,27 @@ func resolveMediaRefs(
 				}
 			}
 
-			// For user messages: encode audio/video as data URLs so multimodal
-			// models can process them directly.
-			if m.Role == "user" && idx >= currentTurnStart && (strings.HasPrefix(mime, "audio/") || strings.HasPrefix(mime, "video/")) {
-				dataURL := encodeMediaToDataURL(localPath, mime, info, maxSize)
-				if dataURL != "" {
-					resolved = append(resolved, dataURL)
+			// For user messages in the current turn: inline audio/video (and
+			// stickers) as data URLs so multimodal models can process them
+			// directly. Regular user images are intentionally left as path tags
+			// only — the model loads them on demand via load_image, which avoids
+			// re-sending large photos. Stickers are small and meant to be seen
+			// directly, so their bytes are inlined here. The MIME comes from
+			// detectMIME (metadata, else magic bytes), so the data URL type
+			// always matches the real file contents.
+			if m.Role == "user" && idx >= currentTurnStart {
+				isSticker := meta.Source == media.SourceTelegramSticker
+				switch {
+				case strings.HasPrefix(mime, "audio/"), strings.HasPrefix(mime, "video/"):
+					dataURL := encodeMediaToDataURL(localPath, mime, info, maxSize)
+					if dataURL != "" {
+						resolved = append(resolved, dataURL)
+					}
+				case isSticker && strings.HasPrefix(mime, "image/"):
+					dataURL := encodeImageToDataURL(localPath, mime, info, maxSize)
+					if dataURL != "" {
+						resolved = append(resolved, dataURL)
+					}
 				}
 			}
 		}

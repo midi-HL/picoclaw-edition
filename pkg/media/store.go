@@ -32,6 +32,12 @@ type MediaMeta struct {
 	CleanupPolicy CleanupPolicy // defaults to CleanupPolicyDeleteOnCleanup
 }
 
+// SourceTelegramSticker marks Telegram sticker media. Unlike regular user
+// images (which are exposed to the model as path tags so it can load them on
+// demand), stickers are small and meant to be perceived directly, so the agent
+// inlines their bytes into the current-turn model request.
+const SourceTelegramSticker = "telegram-sticker"
+
 // MediaStore manages the lifecycle of media files associated with processing scopes.
 type MediaStore interface {
 	// Store registers an existing local file under the given scope.
