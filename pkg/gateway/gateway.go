@@ -514,6 +514,7 @@ func setupAndStartServices(
 	runningServices.ChannelManager.RegisterHTTPHandlerFunc("/api/telegram/stickers/manual", stickerAPI.handleManualUpload)
 	runningServices.ChannelManager.RegisterHTTPHandlerFunc("/api/telegram/stickers/import-set", stickerAPI.handleImportSet)
 	runningServices.ChannelManager.RegisterHTTPHandlerFunc("/api/telegram/stickers/delete", stickerAPI.handleDeleteSticker)
+	runningServices.ChannelManager.RegisterHTTPHandlerFunc("/api/media/file", stickerAPI.handleStickerMediaFile)
 
 	// Hook outbound message collector for REST API responses.
 	msgBus.SetOutboundHook(CollectOutboundResponse)

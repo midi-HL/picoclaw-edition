@@ -303,7 +303,23 @@ make build-all
 
 ### 发送方向 —— AI 发贴纸
 
-AI 可输出 `[SEND_STICKER: <StickerID>]` 标记来发送贴纸；频道会拦截该标记、从文本中剥离，并从本地贴纸库发送（已知 `file_id` 时直接发送，否则上传文件并缓存返回的 `file_id`）。可用贴纸列表由 `pkg/agent/sticker_prompt.go` 注入系统提示词。贴纸包通过 Launcher Web 界面管理（`pkg/gateway/sticker_api.go`、`pkg/sticker/`）。
+AI 可输出 `[SEND_STICKER: <StickerID>]` 标记来发送贴纸。频道会**在原始模型输出上、任何 Markdown 处理之前**拦截该标记（ID 可能含下划线，否则会被 Markdown 当斜体分隔符吃掉），从可见文本中剥离，并从本地贴纸库发送（已知 `file_id` 时直接发送，否则上传文件并缓存返回的 `file_id`）。
+
+两个关键健壮性点：
+
+- **两条发送路径都处理该标记。** 回复可能走流式路径（`telegramStreamer.Finalize` → `sendMessage`），它绕过 `TelegramChannel.Send`；因此两处都做拦截。
+- **模糊 ID 兜底。** 若 ID 仍被改写（分隔符丢失），发送时会忽略 `_` 与 `-` 进行匹配。
+
+可用贴纸列表由 `pkg/agent/sticker_prompt.go` 注入系统提示词。贴纸包通过 Launcher Web 界面管理（`web/backend/api/sticker.go`、`pkg/gateway/sticker_api.go`、`pkg/sticker/`）。
+
+### 贴纸包导入（Launcher 界面）
+
+导入 Telegram 贴纸集（`/api/telegram/stickers/import-set`）会下载每张贴纸、用默认视觉模型生成描述并注册。相关修复：
+
+- **稳定 ID。** 贴纸 ID 用其在集合中的下标（`<setName>_<index>`），重复导入时 ID 保持唯一稳定。
+- **描述 MIME 正确。** 交给视觉模型的图片使用**从文件 magic bytes 检测**的 MIME（`sticker.FileToDataURL`），而非硬编码 `image/webp`——动画/视频贴纸是 `.jpg` 缩略图，MIME 不符会让模型拒绝请求（导致描述为空）。
+- **预览端点。** `GET /api/media/file?path=...` 为界面提供贴纸图片（已做路径穿越防护——仅限贴纸媒体目录下的文件）。
+- **部分失败上报。** 响应含 `imported`/`total`，部分失败时含 `failed` + `error`，界面会展示。
 
 > AI 可以从已管理的贴纸包中发送单张贴纸；但它无法自行创建或导入任意贴纸包。
 

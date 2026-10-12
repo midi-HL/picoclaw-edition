@@ -233,15 +233,10 @@ func (c *TelegramChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]
 		return nil, nil
 	}
 
-	// Intercept sticker sending tag before processing text content
-	reSticker := regexp.MustCompile(`\[SEND_STICKER:\s*([a-zA-Z0-9_-]+)\s*\]`)
-	stickerMatches := reSticker.FindStringSubmatch(msg.Content)
+	// Intercept the sticker directive before any Markdown processing so the raw
+	// ID (which may contain underscores) is preserved.
 	var pendingStickerID string
-	if len(stickerMatches) > 1 {
-		pendingStickerID = stickerMatches[1]
-		// Remove the sticker tag from the text content
-		msg.Content = reSticker.ReplaceAllString(msg.Content, "")
-	}
+	msg.Content, pendingStickerID = extractStickerTag(msg.Content)
 
 	isToolFeedback := outboundMessageIsToolFeedback(msg)
 	toolFeedbackContent := msg.Content
@@ -372,10 +367,23 @@ func (c *TelegramChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]
 	return messageIDs, nil
 }
 
-// sendStickerByID sends a sticker by its ID from the sticker store
+// sendStickerByID sends a sticker by its ID from the sticker store.
 func (c *TelegramChannel) sendStickerByID(ctx context.Context, chatID int64, threadID int, stickerID string) error {
+	return sendStickerToChat(ctx, c.bot, chatID, threadID, stickerID)
+}
+
+// sendStickerToChat resolves a sticker ID (with a fuzzy fallback) and sends it to
+// the given chat. Shared by TelegramChannel.Send and the streaming finalizer.
+func sendStickerToChat(ctx context.Context, bot *telego.Bot, chatID int64, threadID int, stickerID string) error {
 	stickerStore := sticker.NewStore()
 	item, found := stickerStore.GetByID(stickerID)
+	if !found {
+		// Defensive fallback: the ID may have lost separators (e.g. underscores
+		// stripped by Markdown rendering). Match ignoring "_" and "-".
+		if fuzzy, ok := lookupStickerFuzzy(stickerStore, stickerID); ok {
+			item, found = fuzzy, true
+		}
+	}
 	if !found {
 		return fmt.Errorf("sticker %q not found", stickerID)
 	}
@@ -389,7 +397,7 @@ func (c *TelegramChannel) sendStickerByID(ctx context.Context, chatID int64, thr
 				FileID: item.TelegramFileID,
 			},
 		}
-		_, err := c.bot.SendSticker(ctx, params)
+		_, err := bot.SendSticker(ctx, params)
 		return err
 	}
 
@@ -408,14 +416,14 @@ func (c *TelegramChannel) sendStickerByID(ctx context.Context, chatID int64, thr
 				File: file,
 			},
 		}
-		msg, err := c.bot.SendSticker(ctx, params)
+		msg, err := bot.SendSticker(ctx, params)
 		if err != nil {
 			return err
 		}
 
 		// Update the store with the Telegram file_id for future fast sends
 		if msg.Sticker != nil && msg.Sticker.FileID != "" {
-			_ = stickerStore.UpdateTelegramFileID(stickerID, msg.Sticker.FileID)
+			_ = stickerStore.UpdateTelegramFileID(item.ID, msg.Sticker.FileID)
 		}
 		return nil
 	}
@@ -1416,6 +1424,41 @@ func indexedMediaFilename(prefix, ext string, index int, total int) string {
 	return fmt.Sprintf("%s-%d%s", prefix, index+1, ext)
 }
 
+// reStickerTag matches the AI's sticker directive. The optional separator class
+// tolerates a rendered form where underscores were dropped by Markdown italics.
+var reStickerTag = regexp.MustCompile(`\[\s*SEND_?STICKER\s*:\s*([a-zA-Z0-9_\- ]+?)\s*\]`)
+
+// extractStickerTag pulls a sticker directive out of raw model output and
+// returns the remaining text plus the raw sticker ID. It must run BEFORE any
+// Markdown processing: the ID can contain underscores that Markdown would treat
+// as italic delimiters and strip.
+func extractStickerTag(content string) (string, string) {
+	m := reStickerTag.FindStringSubmatch(content)
+	if len(m) < 2 {
+		return content, ""
+	}
+	id := strings.ReplaceAll(strings.TrimSpace(m[1]), " ", "")
+	return reStickerTag.ReplaceAllString(content, ""), id
+}
+
+// lookupStickerFuzzy finds a sticker whose ID matches the given one ignoring
+// "_" and "-" separators. Used as a fallback when the ID was mangled.
+func lookupStickerFuzzy(store *sticker.Store, id string) (sticker.StickerItem, bool) {
+	norm := func(s string) string {
+		return strings.NewReplacer("_", "", "-", "").Replace(strings.ToLower(strings.TrimSpace(s)))
+	}
+	target := norm(id)
+	if target == "" {
+		return sticker.StickerItem{}, false
+	}
+	for _, item := range store.GetAll() {
+		if norm(item.ID) == target {
+			return item, true
+		}
+	}
+	return sticker.StickerItem{}, false
+}
+
 func (c *TelegramChannel) prependTelegramQuotedReply(content string, reply *telego.Message) string {
 	quoted := strings.TrimSpace(telegramQuotedContent(reply))
 	if quoted == "" {
@@ -1890,6 +1933,10 @@ func (s *telegramStreamer) Update(ctx context.Context, content string) error {
 }
 
 func (s *telegramStreamer) Finalize(ctx context.Context, content string) error {
+	// Streaming bypasses TelegramChannel.Send, so intercept the sticker
+	// directive here too (before Markdown processing).
+	content, stickerID := extractStickerTag(content)
+
 	htmlContent := markdownToTelegramHTML(content)
 	tgMsg := tu.Message(tu.ID(s.chatID), htmlContent)
 	tgMsg.MessageThreadID = s.threadID
@@ -1907,6 +1954,16 @@ func (s *telegramStreamer) Finalize(ctx context.Context, content string) error {
 			return fmt.Errorf("telegram finalize: %w", err)
 		}
 	}
+
+	if stickerID != "" {
+		if err := sendStickerToChat(ctx, s.bot, s.chatID, s.threadID, stickerID); err != nil {
+			logger.WarnCF("telegram", "Failed to send sticker (stream finalize)", map[string]any{
+				"sticker_id": stickerID,
+				"error":      err.Error(),
+			})
+		}
+	}
+
 	s.Cancel(ctx)
 	return nil
 }

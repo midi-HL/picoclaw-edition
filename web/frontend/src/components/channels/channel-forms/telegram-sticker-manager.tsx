@@ -115,10 +115,13 @@ export function TelegramStickerManager() {
 
       const text = await res.text()
       let errMsg = "导入失败！"
+      let partialError = ""
 
       try {
-        const err = JSON.parse(text)
-        errMsg = err.error || errMsg
+        const body = JSON.parse(text)
+        errMsg = body.error || errMsg
+        // A 200 response may still carry a partial-failure message.
+        if (res.ok && body.error) partialError = body.error
       } catch {
         errMsg = text || `HTTP ${res.status}: 导入失败`
       }
@@ -126,6 +129,7 @@ export function TelegramStickerManager() {
       if (res.ok) {
         fetchStickers()
         setSetLink("")
+        if (partialError) setError(partialError)
       } else {
         setError(errMsg)
       }

@@ -2,7 +2,6 @@ package gateway
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/mymmrac/telego"
 
@@ -39,6 +39,47 @@ func (h *StickerAPIHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/telegram/stickers/manual", h.handleManualUpload)
 	mux.HandleFunc("/api/telegram/stickers/import-set", h.handleImportSet)
 	mux.HandleFunc("/api/telegram/stickers/", h.handleDeleteSticker)
+	mux.HandleFunc("/api/media/file", h.handleStickerMediaFile)
+}
+
+// handleStickerMediaFile serves a locally stored sticker image for preview.
+// Only files inside the sticker media directory are served.
+func (h *StickerAPIHandler) handleStickerMediaFile(w http.ResponseWriter, r *http.Request) {
+	rawPath := strings.TrimSpace(r.URL.Query().Get("path"))
+	if rawPath == "" {
+		writeJSONError(w, http.StatusBadRequest, "path is required")
+		return
+	}
+
+	mediaDir, err := filepath.Abs(h.store.GetMediaDir())
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "media dir unavailable")
+		return
+	}
+	absPath, err := filepath.Abs(rawPath)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid path")
+		return
+	}
+	rel, err := filepath.Rel(mediaDir, absPath)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		writeJSONError(w, http.StatusForbidden, "path outside sticker media directory")
+		return
+	}
+
+	f, err := os.Open(absPath)
+	if err != nil {
+		writeJSONError(w, http.StatusNotFound, "file not found")
+		return
+	}
+	defer f.Close()
+	if info, err := f.Stat(); err == nil && info.IsDir() {
+		writeJSONError(w, http.StatusBadRequest, "path is a directory")
+		return
+	}
+
+	w.Header().Set("Content-Type", "image/webp")
+	http.ServeContent(w, r, filepath.Base(absPath), time.Time{}, f)
 }
 
 // handleGetStickers handles GET /api/telegram/stickers
@@ -76,6 +117,10 @@ func (h *StickerAPIHandler) handleImportSet(w http.ResponseWriter, r *http.Reque
 	setName := strings.TrimSpace(req.StickerSetName)
 	if setName == "" {
 		writeJSONError(w, http.StatusBadRequest, "sticker_set_name is required")
+		return
+	}
+	if !sticker.IsSafeID(setName) {
+		writeJSONError(w, http.StatusBadRequest, "invalid sticker set name")
 		return
 	}
 
@@ -119,10 +164,15 @@ func (h *StickerAPIHandler) handleImportSet(w http.ResponseWriter, r *http.Reque
 	provider, _, providerErr := providers.CreateProvider(h.cfg)
 
 	imported := 0
-	for _, tgSticker := range set.Stickers {
+	failed := 0
+	var lastErr string
+	for idx, tgSticker := range set.Stickers {
+		// Use the sticker's position in the set for the ID so IDs stay stable and
+		// unique even when some entries are skipped or fail.
+		stickerID := fmt.Sprintf("%s_%d", setName, idx)
+
 		// Skip if sticker ID already exists
-		if _, exists := h.store.GetByID(fmt.Sprintf("%s_%d", setName, imported)); exists {
-			imported++
+		if _, exists := h.store.GetByID(stickerID); exists {
 			continue
 		}
 
@@ -138,14 +188,15 @@ func (h *StickerAPIHandler) handleImportSet(w http.ResponseWriter, r *http.Reque
 		}
 
 		// Download the sticker file
-		localPath, err := h.downloadStickerFile(bot, ctx, targetFileID, ext, setName, imported)
+		localPath, err := h.downloadStickerFile(bot, ctx, targetFileID, ext, setName, idx)
 		if err != nil {
+			failed++
+			lastErr = err.Error()
 			logger.WarnCF("sticker", "Failed to download sticker", map[string]any{
 				"set":   setName,
-				"index": imported,
+				"index": idx,
 				"error": err.Error(),
 			})
-			imported++
 			continue
 		}
 
@@ -162,7 +213,6 @@ func (h *StickerAPIHandler) handleImportSet(w http.ResponseWriter, r *http.Reque
 			emojiHint = tgSticker.Emoji
 		}
 
-		stickerID := fmt.Sprintf("%s_%d", setName, imported)
 		item := sticker.StickerItem{
 			ID:             stickerID,
 			SourceType:     sticker.SourceTelegramSet,
@@ -175,20 +225,29 @@ func (h *StickerAPIHandler) handleImportSet(w http.ResponseWriter, r *http.Reque
 		}
 
 		if err := h.store.Add(item); err != nil {
+			failed++
+			lastErr = err.Error()
 			logger.WarnCF("sticker", "Failed to add sticker to store", map[string]any{
 				"id":    stickerID,
 				"error": err.Error(),
 			})
+			continue
 		}
 
 		imported++
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{
+	resp := map[string]any{
 		"imported": imported,
+		"total":    len(set.Stickers),
 		"set_name": setName,
-	})
+	}
+	if failed > 0 {
+		resp["failed"] = failed
+		resp["error"] = fmt.Sprintf("%d/%d 张贴纸导入失败：%s", failed, len(set.Stickers), lastErr)
+	}
+	json.NewEncoder(w).Encode(resp)
 }
 
 // handleManualUpload handles POST /api/telegram/stickers/manual
@@ -211,6 +270,11 @@ func (h *StickerAPIHandler) handleManualUpload(w http.ResponseWriter, r *http.Re
 
 	if id == "" || description == "" || usageScenarios == "" {
 		writeJSONError(w, http.StatusBadRequest, "id, description, and usage_scenarios are required")
+		return
+	}
+
+	if !sticker.IsSafeID(id) {
+		writeJSONError(w, http.StatusBadRequest, "id may only contain letters, digits, '-' and '_'")
 		return
 	}
 
@@ -373,10 +437,10 @@ func (h *StickerAPIHandler) downloadStickerFile(bot *telego.Bot, ctx context.Con
 
 // autoDescribeSticker uses the default LLM to generate a description for a sticker.
 func (h *StickerAPIHandler) autoDescribeSticker(ctx context.Context, provider providers.LLMProvider, imagePath string) string {
-	// Read image as base64
-	imgData, err := os.ReadFile(imagePath)
+	dataURL, err := sticker.FileToDataURL(imagePath)
 	if err != nil {
 		logger.WarnCF("sticker", "Failed to read image for description", map[string]any{
+			"path":  imagePath,
 			"error": err.Error(),
 		})
 		return ""
@@ -386,9 +450,9 @@ func (h *StickerAPIHandler) autoDescribeSticker(ctx context.Context, provider pr
 
 	messages := []providers.Message{
 		{
-			Role: "user",
+			Role:    "user",
 			Content: prompt,
-			Media: []string{"data:image/webp;base64," + encodeBase64(imgData)},
+			Media:   []string{dataURL},
 		},
 	}
 
@@ -419,9 +483,4 @@ func copyFile(src, dst string) error {
 
 	_, err = io.Copy(destFile, sourceFile)
 	return err
-}
-
-// encodeBase64 encodes bytes to base64 string.
-func encodeBase64(data []byte) string {
-	return base64.StdEncoding.EncodeToString(data)
 }

@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/mymmrac/telego"
 
@@ -39,6 +39,55 @@ func (h *StickerAPIHandler) RegisterStickerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/telegram/stickers/manual", h.handleManualUpload)
 	mux.HandleFunc("POST /api/telegram/stickers/import-set", h.handleImportSet)
 	mux.HandleFunc("DELETE /api/telegram/stickers/delete", h.handleDeleteSticker)
+	// Serve sticker images for the management UI preview. The frontend requests
+	// /api/media/file?path=<abs path>; without this route every preview 404s.
+	mux.HandleFunc("GET /api/media/file", h.handleStickerMediaFile)
+}
+
+// handleStickerMediaFile serves a locally stored sticker image for preview.
+// Only files inside the sticker media directory are served (path traversal
+// guarded by requiring the resolved path to stay under mediaDir).
+func (h *StickerAPIHandler) handleStickerMediaFile(w http.ResponseWriter, r *http.Request) {
+	rawPath := strings.TrimSpace(r.URL.Query().Get("path"))
+	if rawPath == "" {
+		writeStickerError(w, http.StatusBadRequest, "path is required")
+		return
+	}
+
+	mediaDir, err := filepath.Abs(h.store.GetMediaDir())
+	if err != nil {
+		writeStickerError(w, http.StatusInternalServerError, "media dir unavailable")
+		return
+	}
+
+	absPath, err := filepath.Abs(rawPath)
+	if err != nil {
+		writeStickerError(w, http.StatusBadRequest, "invalid path")
+		return
+	}
+
+	// Ensure the requested file lives under the sticker media directory.
+	rel, err := filepath.Rel(mediaDir, absPath)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		writeStickerError(w, http.StatusForbidden, "path outside sticker media directory")
+		return
+	}
+
+	f, err := os.Open(absPath)
+	if err != nil {
+		writeStickerError(w, http.StatusNotFound, "file not found")
+		return
+	}
+	defer f.Close()
+
+	if info, err := f.Stat(); err == nil && info.IsDir() {
+		writeStickerError(w, http.StatusBadRequest, "path is a directory")
+		return
+	}
+
+	// Let the browser sniff the type; stickers are small images (.webp/.jpg).
+	w.Header().Set("Content-Type", "image/webp")
+	http.ServeContent(w, r, filepath.Base(absPath), time.Time{}, f)
 }
 
 // handleGetStickers handles GET /api/telegram/stickers
@@ -64,6 +113,11 @@ func (h *StickerAPIHandler) handleManualUpload(w http.ResponseWriter, r *http.Re
 
 	if id == "" || description == "" || usageScenarios == "" {
 		writeStickerError(w, http.StatusBadRequest, "id, description, and usage_scenarios are required")
+		return
+	}
+
+	if !sticker.IsSafeID(id) {
+		writeStickerError(w, http.StatusBadRequest, "id may only contain letters, digits, '-' and '_'")
 		return
 	}
 
@@ -139,6 +193,10 @@ func (h *StickerAPIHandler) handleImportSet(w http.ResponseWriter, r *http.Reque
 		writeStickerError(w, http.StatusBadRequest, "sticker_set_name is required")
 		return
 	}
+	if !sticker.IsSafeID(setName) {
+		writeStickerError(w, http.StatusBadRequest, "invalid sticker set name")
+		return
+	}
 
 	logger.InfoCF("sticker", "Importing sticker set (launcher)", map[string]any{
 		"set_name": setName,
@@ -185,12 +243,15 @@ func (h *StickerAPIHandler) handleImportSet(w http.ResponseWriter, r *http.Reque
 	}
 
 	imported := 0
-	for _, tgSticker := range set.Stickers {
-		stickerID := fmt.Sprintf("%s_%d", setName, imported)
+	failed := 0
+	var lastErr string
+	for idx, tgSticker := range set.Stickers {
+		// Use the sticker's position in the set for the ID so IDs stay stable and
+		// unique even when some entries are skipped or fail.
+		stickerID := fmt.Sprintf("%s_%d", setName, idx)
 
 		// Skip if already exists
 		if _, exists := h.store.GetByID(stickerID); exists {
-			imported++
 			continue
 		}
 
@@ -206,14 +267,15 @@ func (h *StickerAPIHandler) handleImportSet(w http.ResponseWriter, r *http.Reque
 		}
 
 		// Download the sticker file
-		localPath, err := h.downloadStickerFile(bot, ctx, targetFileID, ext, setName, imported)
+		localPath, err := h.downloadStickerFile(bot, ctx, targetFileID, ext, setName, idx)
 		if err != nil {
+			failed++
+			lastErr = err.Error()
 			logger.WarnCF("sticker", "Failed to download sticker", map[string]any{
 				"set":   setName,
-				"index": imported,
+				"index": idx,
 				"error": err.Error(),
 			})
-			imported++
 			continue
 		}
 
@@ -242,19 +304,28 @@ func (h *StickerAPIHandler) handleImportSet(w http.ResponseWriter, r *http.Reque
 		}
 
 		if err := h.store.Add(item); err != nil {
+			failed++
+			lastErr = err.Error()
 			logger.WarnCF("sticker", "Failed to add sticker to store", map[string]any{
 				"id":    stickerID,
 				"error": err.Error(),
 			})
+			continue
 		}
 
 		imported++
 	}
 
-	json.NewEncoder(w).Encode(map[string]any{
+	resp := map[string]any{
 		"imported": imported,
+		"total":    len(set.Stickers),
 		"set_name": setName,
-	})
+	}
+	if failed > 0 {
+		resp["failed"] = failed
+		resp["error"] = fmt.Sprintf("%d/%d 张贴纸导入失败：%s", failed, len(set.Stickers), lastErr)
+	}
+	json.NewEncoder(w).Encode(resp)
 }
 
 // handleDeleteSticker handles DELETE /api/telegram/stickers/delete
@@ -346,9 +417,10 @@ func (h *StickerAPIHandler) downloadStickerFile(bot *telego.Bot, ctx context.Con
 
 // autoDescribeSticker uses the default LLM to generate a description for a sticker.
 func (h *StickerAPIHandler) autoDescribeSticker(ctx context.Context, provider providers.LLMProvider, modelName string, imagePath string) string {
-	imgData, err := os.ReadFile(imagePath)
+	dataURL, err := sticker.FileToDataURL(imagePath)
 	if err != nil {
 		logger.WarnCF("sticker", "Failed to read image for description", map[string]any{
+			"path":  imagePath,
 			"error": err.Error(),
 		})
 		return ""
@@ -360,7 +432,7 @@ func (h *StickerAPIHandler) autoDescribeSticker(ctx context.Context, provider pr
 		{
 			Role:    "user",
 			Content: prompt,
-			Media:   []string{"data:image/webp;base64," + base64.StdEncoding.EncodeToString(imgData)},
+			Media:   []string{dataURL},
 		},
 	}
 

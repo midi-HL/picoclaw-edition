@@ -304,12 +304,39 @@ therefore invisible to the model (it only saw a path), so it could not react to 
 
 ### Outbound — AI sends a sticker
 
-The AI can send a sticker by emitting a `[SEND_STICKER: <StickerID>]` marker; the
-channel intercepts it, strips it from the text, and sends the sticker from the local
-sticker store (via Telegram `file_id` when known, otherwise by uploading the file and
-caching the returned `file_id`). The available sticker list is injected into the system
-prompt by `pkg/agent/sticker_prompt.go`. Sticker packs are managed through the Launcher
-web UI (`pkg/gateway/sticker_api.go`, `pkg/sticker/`).
+The AI can send a sticker by emitting a `[SEND_STICKER: <StickerID>]` marker. The
+channel intercepts it **from the raw model output, before any Markdown processing**
+(the ID may contain underscores, which Markdown would otherwise treat as italic
+delimiters and strip), removes the marker from the visible text, and sends the
+sticker from the local store (via Telegram `file_id` when known, otherwise by
+uploading the file and caching the returned `file_id`).
+
+Two important robustness points:
+- **Both send paths handle the marker.** Replies may be delivered by the streaming
+  path (`telegramStreamer.Finalize` → `sendMessage`), which bypasses
+  `TelegramChannel.Send`; the intercept therefore runs in both.
+- **Fuzzy ID fallback.** If the ID still arrives mangled (separators dropped), the
+  send resolves it by matching IDs while ignoring `_` and `-`.
+
+The available sticker list is injected into the system prompt by
+`pkg/agent/sticker_prompt.go`. Sticker packs are managed through the Launcher web UI
+(`web/backend/api/sticker.go`, `pkg/gateway/sticker_api.go`, `pkg/sticker/`).
+
+### Sticker pack import (Launcher UI)
+
+Importing a Telegram sticker set (`/api/telegram/stickers/import-set`) downloads each
+sticker, generates a description with the default vision model, and registers it.
+Notable fixes:
+- **Stable IDs.** The sticker ID uses the sticker's index in the set
+  (`<setName>_<index>`), so IDs stay unique and stable across re-imports.
+- **Correct MIME for descriptions.** The image handed to the vision model uses the
+  MIME detected from the file's magic bytes (`sticker.FileToDataURL`), not a
+  hard-coded `image/webp` — animated/video stickers are `.jpg` thumbnails, and a
+  mismatched MIME made the model reject the request (so descriptions came back empty).
+- **Preview endpoint.** `GET /api/media/file?path=...` serves sticker images to the
+  UI (path-traversal guarded — only files under the sticker media directory).
+- **Partial-failure reporting.** The response carries `imported`/`total` and, on
+  partial failure, `failed` + an `error` message that the UI surfaces.
 
 > The AI can send individual stickers from the managed packs; it cannot create or
 > import arbitrary sticker packs on its own.
