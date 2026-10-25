@@ -357,9 +357,26 @@ export function sendChatMessage({
   }))
 
   try {
+    // Images/audio/video go through "media" (inlined as multimodal input).
+    // Generic files go through "files" (persisted to the workspace and exposed
+    // to the model as [file:/path] tags).
+    const mediaAttachments = normalizedAttachments.filter(
+      (attachment) => attachment.type !== "file",
+    )
+    const fileAttachments = normalizedAttachments.filter(
+      (attachment) => attachment.type === "file",
+    )
+
     const payload: Record<string, unknown> = {
       content: normalizedContent,
-      media: normalizedAttachments.map((attachment) => attachment.url),
+      media: mediaAttachments.map((attachment) => attachment.url),
+    }
+    if (fileAttachments.length > 0) {
+      payload.files = fileAttachments.map((attachment) => ({
+        filename: attachment.filename,
+        content_type: attachment.contentType,
+        data: attachment.url,
+      }))
     }
 
     socket.send(

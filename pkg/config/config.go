@@ -819,6 +819,16 @@ type ModelConfig struct {
 
 	APIKeys SecureStrings `json:"api_keys,omitzero" yaml:"api_keys,omitempty"` // API authentication keys (multiple keys for failover)
 
+	// KeyRotation, when enabled, rotates through APIKeys on every request
+	// (round-robin) instead of always using the first key and failing over only
+	// on error. Optional: when omitted (false) behaviour is unchanged.
+	KeyRotation bool `json:"key_rotation,omitempty" yaml:"key_rotation,omitempty"`
+	// ProviderRotation, when enabled, rotates the starting point of this model's
+	// fallback chain on every request so multiple providers/endpoints share load
+	// (round-robin) instead of always hitting the first one. Optional: when
+	// omitted (false) behaviour is unchanged.
+	ProviderRotation bool `json:"provider_rotation,omitempty" yaml:"provider_rotation,omitempty"`
+
 	// Enabled indicates whether this model entry is active. When omitted in
 	// existing configs, the field is inferred during load: models with API keys
 	// or the reserved "local-model" name are auto-enabled.
@@ -1828,6 +1838,8 @@ func expandMultiKeyModels(models []*ModelConfig) []*ModelConfig {
 				ExtraBody:           m.ExtraBody,
 				CustomHeaders:       m.CustomHeaders,
 				UserAgent:           m.UserAgent,
+				KeyRotation:         m.KeyRotation,
+				ProviderRotation:    m.ProviderRotation,
 				isVirtual:           true,
 			}
 			expanded = append(expanded, additionalEntry)
@@ -1854,6 +1866,8 @@ func expandMultiKeyModels(models []*ModelConfig) []*ModelConfig {
 			CustomHeaders:       m.CustomHeaders,
 			UserAgent:           m.UserAgent,
 			APIKeys:             SimpleSecureStrings(keys[0]),
+			KeyRotation:         m.KeyRotation,
+			ProviderRotation:    m.ProviderRotation,
 		}
 
 		// Prepend new fallbacks to existing ones

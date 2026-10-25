@@ -118,7 +118,11 @@
       "apikey": "API Key",
       "oauth": "OAuth",
       "local": "Local"
-    }
+    },
+    "attachFile": "Attach file",
+    "uploadedFile": "Uploaded file",
+    "fileTooLarge": "{{name}} exceeds the {{size}} limit",
+    "fileReadFailed": "Could not read {{name}}"
   },
   "header": {
     "logout": {

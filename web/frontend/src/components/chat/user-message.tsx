@@ -1,4 +1,4 @@
-import { IconCheck, IconCopy } from "@tabler/icons-react"
+import { IconCheck, IconCopy, IconFile } from "@tabler/icons-react"
 import { useTranslation } from "react-i18next"
 
 import { Button } from "@/components/ui/button"
@@ -25,6 +25,9 @@ export function UserMessage({
   const imageAttachments = attachments.filter(
     (attachment) => attachment.type === "image",
   )
+  const fileAttachments = attachments.filter(
+    (attachment) => attachment.type === "file",
+  )
   const copyMessageLabel = isCopied
     ? t("chat.copiedLabel")
     : t("chat.copyMessage")
@@ -33,6 +36,22 @@ export function UserMessage({
 
   return (
     <div className="group flex w-full flex-col items-end gap-1.5">
+      {fileAttachments.length > 0 && (
+        <div className="flex max-w-[70%] flex-wrap justify-end gap-2">
+          {fileAttachments.map((attachment, index) => (
+            <div
+              key={`${attachment.filename || "file"}-${index}`}
+              className="flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-700 dark:border-zinc-800/60 dark:bg-[#121212] dark:text-zinc-200"
+            >
+              <IconFile className="size-4 shrink-0" />
+              <span className="max-w-48 truncate">
+                {attachment.filename || t("chat.uploadedFile")}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
       {imageAttachments.length > 0 && (
         <div className="flex max-w-[70%] flex-wrap justify-end gap-2">
           {imageAttachments.map((attachment, index) => (

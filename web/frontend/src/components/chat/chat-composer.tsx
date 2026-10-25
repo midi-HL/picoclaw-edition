@@ -1,4 +1,10 @@
-import { IconArrowUp, IconPhotoPlus, IconX } from "@tabler/icons-react"
+import {
+  IconArrowUp,
+  IconFile,
+  IconPaperclip,
+  IconPhotoPlus,
+  IconX,
+} from "@tabler/icons-react"
 import {
   type ClipboardEvent as ReactClipboardEvent,
   type DragEvent as ReactDragEvent,
@@ -30,6 +36,7 @@ interface ChatComposerProps {
   attachments: ChatAttachment[]
   onInputChange: (value: string) => void
   onAddImages: () => void
+  onAddFiles: () => void
   onPaste: (event: ReactClipboardEvent<HTMLTextAreaElement>) => void
   onDragEnter: (event: ReactDragEvent<HTMLDivElement>) => void
   onDragLeave: (event: ReactDragEvent<HTMLDivElement>) => void
@@ -49,6 +56,7 @@ export function ChatComposer({
   attachments,
   onInputChange,
   onAddImages,
+  onAddFiles,
   onPaste,
   onDragEnter,
   onDragLeave,
@@ -118,11 +126,20 @@ export function ChatComposer({
                   key={`${attachment.url}-${index}`}
                   className="bg-background relative h-20 w-20 overflow-hidden rounded-xl border"
                 >
-                  <img
-                    src={attachment.url}
-                    alt={attachment.filename || t("chat.uploadedImage")}
-                    className="h-full w-full object-cover"
-                  />
+                  {attachment.type === "file" ? (
+                    <div className="flex h-full w-full flex-col items-center justify-center gap-1 p-1">
+                      <IconFile className="size-6 text-muted-foreground" />
+                      <span className="line-clamp-2 text-center text-[10px] leading-tight break-all">
+                        {attachment.filename || t("chat.uploadedFile")}
+                      </span>
+                    </div>
+                  ) : (
+                    <img
+                      src={attachment.url}
+                      alt={attachment.filename || t("chat.uploadedImage")}
+                      className="h-full w-full object-cover"
+                    />
+                  )}
                   <button
                     type="button"
                     onClick={() => onRemoveAttachment(index)}
@@ -172,6 +189,18 @@ export function ChatComposer({
                 title={t("chat.attachImage")}
               >
                 <IconPhotoPlus className="size-4" />
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="text-muted-foreground hover:text-foreground h-8 w-8 rounded-full"
+                onClick={onAddFiles}
+                disabled={!canInput}
+                aria-label={t("chat.attachFile")}
+                title={t("chat.attachFile")}
+              >
+                <IconPaperclip className="size-4" />
               </Button>
             </div>
 

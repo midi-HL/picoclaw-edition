@@ -415,6 +415,57 @@ message telling the user to configure a vision model, matching upstream behaviou
 
 ---
 
+## 12. API Key / Provider Rotation & Web File Upload
+
+### Round-robin rotation (opt-in)
+
+Two optional per-model flags change how multiple keys/endpoints are used:
+
+| Flag | Effect |
+|---|---|
+| `key_rotation: true` | Rotate through `api_keys` on every request (round-robin) instead of always using the first key and failing over only on error. |
+| `provider_rotation: true` | Rotate the starting point of the model's fallback chain on every request, so multiple providers/endpoints share load. |
+
+```json
+{
+  "model_name": "gpt-main",
+  "model": "openai/gpt-5.5",
+  "api_keys": ["sk-a", "sk-b", "sk-c"],
+  "key_rotation": true,
+  "fallbacks": ["backup-endpoint"],
+  "provider_rotation": true
+}
+```
+
+**Backward compatible by default.** Both flags default to `false`, and the
+rotation only engages when at least one candidate opts in
+(`anyRotating`). Existing configs keep the historical behaviour exactly:
+always start with the first key/provider, fail over on error. Rotation merely
+changes the *starting point*; the failover order remains a stable ring, so a
+failing candidate is still skipped to the next one.
+
+### Web chat file upload
+
+The web chat composer now accepts arbitrary files (not just images):
+
+- **Images** keep the existing path — inlined as multimodal media
+  (`media` field), unchanged.
+- **Other files** are sent in a new optional `files` field as
+  `{filename, content_type, data}` data URLs, written to
+  `<workspace>/uploads/<messageID>/`, and exposed to the model as
+  `[file:/path]` tags that it can read with `read_file`.
+
+Design notes:
+- Files land **inside the agent workspace** on purpose: the default
+  `restrict_to_workspace` is `true`, so a system temp dir would be unreadable by
+  `read_file` without loosening the sandbox.
+- Files are written **only after** the sender passes the allow-list check.
+- Filenames are sanitized (no separators, no `..`); a 10 MB per-file cap applies.
+- A message may consist of files only (no text) — it is not rejected as empty.
+- Payloads without a `files` field behave exactly as before.
+
+---
+
 ## Known Limitations
 
 ### Video Format is MiMo-Only

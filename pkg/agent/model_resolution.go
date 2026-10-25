@@ -129,6 +129,8 @@ func candidateFromModelConfig(
 		RPM:         mc.RPM,
 		IdentityKey: modelConfigIdentityKey(mc),
 		ConfigKey:   modelConfigResolutionKey(defaultProvider, mc),
+		// Round-robin opt-in (default false keeps historical behaviour).
+		Rotate: mc.KeyRotation || mc.ProviderRotation,
 	}, true
 }
 

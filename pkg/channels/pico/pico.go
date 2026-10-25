@@ -1207,7 +1207,13 @@ func (c *PicoChannel) handleMessageSend(pc *picoConn, msg PicoMessage) {
 		return
 	}
 
-	if strings.TrimSpace(content) == "" && len(media) == 0 {
+	// A message may consist solely of attachments: inline media, or generic
+	// files (which are turned into [file:...] tags further below).
+	hasFilePayload := false
+	if rawFiles, ok := msg.Payload["files"].([]any); ok && len(rawFiles) > 0 {
+		hasFilePayload = true
+	}
+	if strings.TrimSpace(content) == "" && len(media) == 0 && !hasFilePayload {
 		errMsg := newErrorWithPayload("empty_content", "message content is empty", map[string]any{
 			"request_id": msg.ID,
 		})
@@ -1245,6 +1251,25 @@ func (c *PicoChannel) handleMessageSend(pc *picoConn, msg PicoMessage) {
 		return
 	}
 
+	// Generic (non-image) attachments are persisted only after the sender is
+	// authorized, so unauthorized clients cannot write to the workspace. Files
+	// are exposed to the model as [file:/path] tags (read via read_file).
+	// Payloads without "files" behave exactly as before.
+	if fileTags, ferr := c.persistInboundFiles(msg.Payload, msg.ID); ferr != nil {
+		errMsg := newErrorWithPayload("invalid_file", ferr.Error(), map[string]any{
+			"request_id": msg.ID,
+		})
+		pc.writeJSON(errMsg)
+		return
+	} else if len(fileTags) > 0 {
+		for _, tag := range fileTags {
+			if content != "" {
+				content += "\n"
+			}
+			content += tag
+		}
+	}
+
 	inboundCtx := bus.InboundContext{
 		Channel:   "pico",
 		ChatID:    chatID,
@@ -1264,6 +1289,159 @@ func truncate(s string, maxLen int) string {
 		return s
 	}
 	return string(runes[:maxLen]) + "..."
+}
+
+// persistInboundFiles decodes any generic (non-image) file attachments from the
+// payload, writes them to a per-message temp directory, and returns
+// [file:/path] tags for the model. Image attachments are handled separately by
+// parseInlineImageMedia and must NOT be passed here.
+//
+// Expected payload shape (all optional, backward compatible):
+//
+//	"files": [{"filename": "report.pdf", "content_type": "application/pdf",
+//	           "data": "data:application/pdf;base64,...."}]
+func (c *PicoChannel) persistInboundFiles(payload map[string]any, messageID string) ([]string, error) {
+	raw, ok := payload["files"]
+	if !ok || raw == nil {
+		return nil, nil
+	}
+	items, ok := raw.([]any)
+	if !ok {
+		return nil, fmt.Errorf("files must be an array")
+	}
+	if len(items) == 0 {
+		return nil, nil
+	}
+
+	dirName := sanitizeFileComponent(messageID)
+	if dirName == "" {
+		dirName = "msg"
+	}
+	// Store under the agent workspace so the model can read the files with the
+	// read_file tool. The default config restricts reads to the workspace, so a
+	// system temp dir would be unreadable without loosening that restriction.
+	dir := filepath.Join(config.GetHome(), "workspace", "uploads", dirName)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, fmt.Errorf("failed to create upload dir: %w", err)
+	}
+
+	maxSize := c.maxMediaSize
+	if maxSize <= 0 {
+		maxSize = config.DefaultMaxMediaSize
+	}
+
+	tags := make([]string, 0, len(items))
+	for i, item := range items {
+		obj, ok := item.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("files[%d]: invalid entry", i)
+		}
+		dataURL, _ := obj["data"].(string)
+		if strings.TrimSpace(dataURL) == "" {
+			return nil, fmt.Errorf("files[%d]: data is required", i)
+		}
+
+		mimeType, decoded, err := decodeAnyDataURL(dataURL, maxSize)
+		if err != nil {
+			return nil, fmt.Errorf("files[%d]: %w", i, err)
+		}
+		if strings.HasPrefix(mimeType, "image/") {
+			// Images belong to the image path; reject to avoid silent divergence.
+			return nil, fmt.Errorf("files[%d]: image attachments must be sent via \"media\"", i)
+		}
+
+		filename := strings.TrimSpace(stringOr(obj["filename"]))
+		if filename == "" {
+			filename = fmt.Sprintf("file-%d%s", i+1, extensionForMIME(mimeType))
+		}
+		safeName := sanitizeFileComponent(filepath.Base(filename))
+		if safeName == "" {
+			safeName = fmt.Sprintf("file-%d", i+1)
+		}
+
+		dst := filepath.Join(dir, safeName)
+		if err := os.WriteFile(dst, decoded, 0o600); err != nil {
+			return nil, fmt.Errorf("files[%d]: failed to write: %w", i, err)
+		}
+		tags = append(tags, "[file:"+dst+"]")
+		logger.InfoCF("pico", "Saved inbound file attachment", map[string]any{
+			"path": dst,
+			"size": len(decoded),
+			"mime": mimeType,
+		})
+	}
+
+	return tags, nil
+}
+
+// decodeAnyDataURL parses a base64 data URL of any MIME type and enforces a size
+// limit. Returns the declared MIME type and the decoded bytes.
+func decodeAnyDataURL(dataURL string, maxSize int) (string, []byte, error) {
+	header, data, found := strings.Cut(dataURL, ",")
+	if !found || strings.TrimSpace(data) == "" {
+		return "", nil, fmt.Errorf("data URL is malformed")
+	}
+	if !strings.HasPrefix(header, "data:") || !strings.Contains(header, ";base64") {
+		return "", nil, fmt.Errorf("data URL must be base64 encoded")
+	}
+	mimeType, _, _ := strings.Cut(strings.TrimPrefix(header, "data:"), ";")
+	if strings.TrimSpace(mimeType) == "" {
+		mimeType = "application/octet-stream"
+	}
+
+	data = strings.TrimSpace(data)
+	if base64.StdEncoding.DecodedLen(len(data)) > maxSize {
+		return "", nil, fmt.Errorf("file exceeds %d byte limit", maxSize)
+	}
+	decoded, err := base64.StdEncoding.DecodeString(data)
+	if err != nil {
+		return "", nil, fmt.Errorf("invalid base64 data")
+	}
+	return mimeType, decoded, nil
+}
+
+// sanitizeFileComponent keeps a safe basename: no separators, no traversal.
+func sanitizeFileComponent(name string) string {
+	name = strings.TrimSpace(name)
+	name = strings.ReplaceAll(name, "\\", "_")
+	name = strings.ReplaceAll(name, "/", "_")
+	name = strings.ReplaceAll(name, "..", "_")
+	name = strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+			return r
+		case r == '.', r == '-', r == '_', r == ' ':
+			return r
+		default:
+			return '_'
+		}
+	}, name)
+	return strings.TrimSpace(name)
+}
+
+func stringOr(v any) string {
+	s, _ := v.(string)
+	return s
+}
+
+// extensionForMIME returns a conventional extension for common document types.
+func extensionForMIME(mimeType string) string {
+	switch strings.ToLower(strings.TrimSpace(mimeType)) {
+	case "application/pdf":
+		return ".pdf"
+	case "text/plain":
+		return ".txt"
+	case "text/markdown":
+		return ".md"
+	case "application/json":
+		return ".json"
+	case "text/csv":
+		return ".csv"
+	case "application/zip":
+		return ".zip"
+	default:
+		return ".bin"
+	}
 }
 
 func parseInlineImageMedia(payload map[string]any, maxSize int) ([]string, error) {

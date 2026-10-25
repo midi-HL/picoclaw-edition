@@ -370,6 +370,47 @@ Telegram 语音与视频会在当前轮内联为 `data:audio/...` / `data:video/
 
 ---
 
+## 12. API 密钥/服务商轮询与 Web 上传文件
+
+### 轮询（可选开关）
+
+两个可选的模型级开关：
+
+| 开关 | 作用 |
+|---|---|
+| `key_rotation: true` | 每次请求轮换 `api_keys` 中的密钥（round-robin），而非固定用第一个、出错才切换。 |
+| `provider_rotation: true` | 每次请求轮换 fallback 链的起始位置，让多个服务商/端点分摊负载。 |
+
+```json
+{
+  "model_name": "gpt-main",
+  "model": "openai/gpt-5.5",
+  "api_keys": ["sk-a", "sk-b", "sk-c"],
+  "key_rotation": true,
+  "fallbacks": ["backup-endpoint"],
+  "provider_rotation": true
+}
+```
+
+**默认向下兼容。** 两个开关默认 `false`，且只有在至少一个候选开启时才生效（`anyRotating`）。旧配置行为完全不变：始终从第一个密钥/服务商开始，出错才故障转移。轮询只改变**起始点**，故障转移顺序仍是稳定的环，失败候选照样跳到下一个。
+
+### Web 对话上传文件
+
+Web 对话输入框现在支持任意文件（不再仅限图片）：
+
+- **图片**沿用原路径——作为多模态媒体内联（`media` 字段），行为不变。
+- **其他文件**通过新增的可选 `files` 字段以 `{filename, content_type, data}` data URL 发送，写入 `<workspace>/uploads/<messageID>/`，并以 `[file:/path]` 标签提供给模型，用 `read_file` 读取。
+
+设计要点：
+
+- 文件**存放在 agent 工作区内**：默认 `restrict_to_workspace` 为 `true`，若放系统临时目录，`read_file` 读不到（除非放宽沙箱）。
+- 文件写入在**发送者通过 allow-list 校验之后**才进行。
+- 文件名做净化（不含分隔符、不含 `..`）；单文件 10 MB 上限。
+- 允许「只有文件、没有文字」的消息，不会被判为空内容拒绝。
+- 不带 `files` 字段的旧 payload 行为完全不变。
+
+---
+
 ## 已知限制
 
 ### 视频格式仅限 MiMo

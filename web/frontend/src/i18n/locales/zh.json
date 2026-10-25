@@ -118,7 +118,11 @@
       "apikey": "API Key",
       "oauth": "OAuth",
       "local": "本地模型"
-    }
+    },
+    "attachFile": "上传文件",
+    "uploadedFile": "已上传文件",
+    "fileTooLarge": "{{name}} 超过 {{size}} 上限",
+    "fileReadFailed": "无法读取 {{name}}"
   },
   "header": {
     "logout": {

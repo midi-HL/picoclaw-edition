@@ -32,9 +32,11 @@ import {
 import {
   CHAT_IMAGE_ACCEPT,
   buildChatImageAttachments,
+
   getTransferredFiles,
   hasFileTransfer,
 } from "@/features/chat/image-input"
+import { buildChatFileAttachments } from "@/features/chat/file-input"
 import { useChatModels } from "@/hooks/use-chat-models"
 import { useGateway } from "@/hooks/use-gateway"
 import { usePicoChat } from "@/hooks/use-pico-chat"
@@ -104,6 +106,7 @@ export function ChatPage() {
   const { t } = useTranslation()
   const scrollRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const anyFileInputRef = useRef<HTMLInputElement>(null)
   const dragDepthRef = useRef(0)
   const [isAtBottom, setIsAtBottom] = useState(true)
   const [hasScrolled, setHasScrolled] = useState(false)
@@ -206,6 +209,37 @@ export function ChatPage() {
   const handleAddImages = () => {
     if (!canInput) return
     fileInputRef.current?.click()
+  }
+
+  const handleAddFiles = () => {
+    if (!canInput) return
+    anyFileInputRef.current?.click()
+  }
+
+  const handleAnyFileSelection = async (
+    event: ChangeEvent<HTMLInputElement>,
+  ) => {
+    const files = Array.from(event.target.files ?? [])
+    event.target.value = ""
+    if (!canInput || files.length === 0) {
+      return
+    }
+
+    // Images keep going through the image path so they can be inlined as
+    // multimodal media; everything else becomes a generic file attachment.
+    const imageFiles = files.filter((file) => file.type.startsWith("image/"))
+    const otherFiles = files.filter((file) => !file.type.startsWith("image/"))
+
+    const next: ChatAttachment[] = []
+    if (imageFiles.length > 0) {
+      next.push(...(await buildChatImageAttachments(imageFiles, t)))
+    }
+    if (otherFiles.length > 0) {
+      next.push(...(await buildChatFileAttachments(otherFiles, t)))
+    }
+    if (next.length > 0) {
+      setAttachments((prev) => [...prev, ...next])
+    }
   }
 
   const handleRemoveAttachment = (index: number) => {
@@ -439,11 +473,20 @@ export function ChatPage() {
         onChange={handleImageSelection}
       />
 
+      <input
+        ref={anyFileInputRef}
+        type="file"
+        multiple
+        className="hidden"
+        onChange={handleAnyFileSelection}
+      />
+
       <ChatComposer
         input={input}
         attachments={attachments}
         onInputChange={setInput}
         onAddImages={handleAddImages}
+        onAddFiles={handleAddFiles}
         onPaste={handleComposerPaste}
         onDragEnter={handleComposerDragEnter}
         onDragLeave={handleComposerDragLeave}

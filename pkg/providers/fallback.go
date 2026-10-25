@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -11,6 +12,9 @@ import (
 type FallbackChain struct {
 	cooldown *CooldownTracker
 	rl       *RateLimiterRegistry
+	// rotation drives round-robin selection. It is only advanced when at least
+	// one candidate opts in via Rotate, so existing configurations are unaffected.
+	rotation atomic.Uint64
 }
 
 // FallbackCandidate represents one model/provider to try.
@@ -22,6 +26,36 @@ type FallbackCandidate struct {
 	IdentityKey string // optional stable config identity for cooldown/rate limiting
 	ConfigIndex int    // optional 1-based model_list index selected during resolution
 	ConfigKey   string // optional hashed model_list identity, stable across reordering
+	// Rotate marks this candidate as participating in round-robin selection
+	// (key_rotation / provider_rotation). When any candidate sets it, the chain
+	// rotates the starting candidate on each request instead of always trying
+	// the first one. Zero value keeps the historical behaviour.
+	Rotate bool
+}
+
+// rotateCandidates returns a copy of candidates rotated left by offset. The
+// relative order is preserved, so failover semantics stay identical — only the
+// starting point changes.
+func rotateCandidates(candidates []FallbackCandidate, offset uint64) []FallbackCandidate {
+	n := len(candidates)
+	if n <= 1 || offset == 0 {
+		return candidates
+	}
+	start := int(offset % uint64(n))
+	rotated := make([]FallbackCandidate, 0, n)
+	rotated = append(rotated, candidates[start:]...)
+	rotated = append(rotated, candidates[:start]...)
+	return rotated
+}
+
+// anyRotating reports whether any candidate participates in rotation.
+func anyRotating(candidates []FallbackCandidate) bool {
+	for _, c := range candidates {
+		if c.Rotate {
+			return true
+		}
+	}
+	return false
 }
 
 // StableKey returns the candidate's config-level identity when available,
@@ -145,6 +179,14 @@ func (fc *FallbackChain) ExecuteCandidate(
 ) (*FallbackResult, error) {
 	if len(candidates) == 0 {
 		return nil, fmt.Errorf("fallback: no candidates configured")
+	}
+
+	// Round-robin: when any candidate opted into rotation, advance a shared
+	// counter and start from a different candidate each request. Candidates that
+	// did not opt in are untouched (anyRotating is false), preserving the
+	// historical always-start-from-first behaviour.
+	if anyRotating(candidates) {
+		candidates = rotateCandidates(candidates, fc.rotation.Add(1)-1)
 	}
 
 	result := &FallbackResult{
