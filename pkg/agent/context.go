@@ -827,6 +827,13 @@ func (cb *ContextBuilder) buildDynamicContext(
 		fmt.Fprintf(&sb, "\n\n## Current Sender\n%s", senderLine)
 	}
 
+	// Group chats: history lines are prefixed with "[Name]: " so speaker
+	// attribution survives compaction. Tell the model this is an annotation it
+	// must not imitate, otherwise replies would start with "[Bot]: ...".
+	fmt.Fprintf(&sb, "\n\n## Group Chat Attribution\n"+
+		"In group chats, each history message may be prefixed with \"[Name]: \" to record who said it. "+
+		"That prefix is an annotation added by the system — never include such a prefix in your own replies.")
+
 	return sb.String()
 }
 

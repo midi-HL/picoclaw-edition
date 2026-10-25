@@ -70,6 +70,24 @@ func isVisionUnsupportedError(err error) bool {
 		return true
 	}
 
+	// Audio / video input rejection. Non-omni models reject these fields the same
+	// way they reject images, so the same fallback (strip media, retry as text)
+	// applies. Match both semantic messages and schema-level "unknown variant".
+	if strings.Contains(msg, "input_audio") || strings.Contains(msg, "audio input") ||
+		strings.Contains(msg, "does not support audio") || strings.Contains(msg, "audio is not supported") ||
+		strings.Contains(msg, "unsupported audio") {
+		return true
+	}
+	if strings.Contains(msg, "video_url") || strings.Contains(msg, "video input") ||
+		strings.Contains(msg, "does not support video") || strings.Contains(msg, "video is not supported") ||
+		strings.Contains(msg, "unsupported video") {
+		return true
+	}
+	if strings.Contains(msg, "unknown variant") &&
+		(strings.Contains(msg, "audio") || strings.Contains(msg, "video")) {
+		return true
+	}
+
 	return false
 }
 
@@ -119,6 +137,37 @@ func messagesContainCurrentTurnMediaTurn(messages []providers.Message) bool {
 		}
 	}
 	return false
+}
+
+// messagesContainOnlyAudioVideo reports whether the media attached to the given
+// messages consists solely of audio/video (no images). Used to decide whether an
+// "unsupported media" error can be recovered by dropping the attachments: audio
+// and video usually arrive passively from channels, so failing the whole turn
+// would leave the user with nothing.
+func messagesContainOnlyAudioVideo(messages []providers.Message) bool {
+	sawAudioVideo := false
+	for _, msg := range messages {
+		for _, ref := range msg.Media {
+			ref = strings.TrimSpace(ref)
+			if ref == "" {
+				continue
+			}
+			switch {
+			case strings.HasPrefix(ref, "data:audio/"), strings.HasPrefix(ref, "data:video/"):
+				sawAudioVideo = true
+			default:
+				// Anything else (image data URL, media:// ref) means we cannot
+				// assume audio/video-only.
+				return false
+			}
+		}
+		// Images are exposed to the model as path tags in message content rather
+		// than media entries, so also treat an [image:...] tag as "has image".
+		if imagePlaceholderRegex.MatchString(msg.Content) || resolvedImagePathTagRegex.MatchString(msg.Content) {
+			return false
+		}
+	}
+	return sawAudioVideo
 }
 
 // messagesContainVideo checks if any message in the current turn contains video data URLs.

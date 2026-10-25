@@ -233,10 +233,9 @@ func (c *TelegramChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]
 		return nil, nil
 	}
 
-	// Intercept the sticker directive before any Markdown processing so the raw
-	// ID (which may contain underscores) is preserved.
-	var pendingStickerID string
-	msg.Content, pendingStickerID = extractStickerTag(msg.Content)
+	// Strip any legacy sticker directive before Markdown processing so the user
+	// never sees the raw marker. Stickers are delivered via the send_sticker tool.
+	msg.Content = stripLegacyStickerTag(msg.Content)
 
 	isToolFeedback := outboundMessageIsToolFeedback(msg)
 	toolFeedbackContent := msg.Content
@@ -354,22 +353,21 @@ func (c *TelegramChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]
 		c.dismissTrackedToolFeedbackMessage(ctx, trackedChatID, trackedMsgID)
 	}
 
-	// Send sticker if requested by the AI model
-	if pendingStickerID != "" {
-		if err := c.sendStickerByID(ctx, chatID, threadID, pendingStickerID); err != nil {
-			logger.WarnCF("telegram", "Failed to send sticker", map[string]any{
-				"sticker_id": pendingStickerID,
-				"error":      err.Error(),
-			})
-		}
-	}
 
 	return messageIDs, nil
 }
 
-// sendStickerByID sends a sticker by its ID from the sticker store.
-func (c *TelegramChannel) sendStickerByID(ctx context.Context, chatID int64, threadID int, stickerID string) error {
-	return sendStickerToChat(ctx, c.bot, chatID, threadID, stickerID)
+// SendStickerByID implements channels.StickerCapable. chatID may be a composite
+// "123/456" value carrying a forum topic thread ID.
+func (c *TelegramChannel) SendStickerByID(ctx context.Context, chatID, stickerID string) error {
+	if !c.IsRunning() {
+		return channels.ErrNotRunning
+	}
+	resolvedChatID, threadID, err := resolveTelegramOutboundTarget(chatID, nil)
+	if err != nil {
+		return fmt.Errorf("invalid chat ID %s: %w", chatID, channels.ErrSendFailed)
+	}
+	return sendStickerToChat(ctx, c.bot, resolvedChatID, threadID, stickerID)
 }
 
 // sendStickerToChat resolves a sticker ID (with a fuzzy fallback) and sends it to
@@ -388,6 +386,25 @@ func sendStickerToChat(ctx context.Context, bot *telego.Bot, chatID int64, threa
 		return fmt.Errorf("sticker %q not found", stickerID)
 	}
 
+	// The stored absolute path may point at another machine (e.g. the sticker DB
+	// was carried over from a different host/user). Re-resolve the file inside
+	// the current media directory by basename before giving up.
+	if item.FilePath != "" {
+		if _, statErr := os.Stat(item.FilePath); statErr != nil {
+			if relocated := filepath.Join(stickerStore.GetMediaDir(), filepath.Base(item.FilePath)); relocated != item.FilePath {
+				if _, ok := os.Stat(relocated); ok == nil {
+					logger.WarnCF("telegram", "Sticker path relocated to current media dir", map[string]any{
+						"sticker_id": item.ID,
+						"old":        item.FilePath,
+						"new":        relocated,
+					})
+					item.FilePath = relocated
+					_ = stickerStore.Update(item)
+				}
+			}
+		}
+	}
+
 	if item.TelegramFileID != "" {
 		// Use Telegram file_id for fast sending
 		params := &telego.SendStickerParams{
@@ -397,8 +414,30 @@ func sendStickerToChat(ctx context.Context, bot *telego.Bot, chatID int64, threa
 				FileID: item.TelegramFileID,
 			},
 		}
-		_, err := bot.SendSticker(ctx, params)
-		return err
+		if _, err := bot.SendSticker(ctx, params); err == nil {
+			return nil
+		} else if item.FilePath == "" {
+			// No local copy to fall back to.
+			return fmt.Errorf("send sticker by file_id: %w", err)
+		} else {
+			// Telegram file_ids are bot-scoped: a file_id obtained from another
+			// bot's sticker set is rejected here. Fall through to uploading the
+			// local file. Only invalidate the cached file_id when the error says
+			// it is actually bad — a transient failure must not lose the cache.
+			lowErr := strings.ToLower(err.Error())
+			badFileID := strings.Contains(lowErr, "wrong file identifier") ||
+				strings.Contains(lowErr, "file_id") ||
+				strings.Contains(lowErr, "invalid file") ||
+				strings.Contains(lowErr, "file reference")
+			logger.WarnCF("telegram", "file_id send failed, falling back to local upload", map[string]any{
+				"sticker_id": item.ID,
+				"error":      err.Error(),
+				"bad_file_id": badFileID,
+			})
+			if badFileID {
+				_ = stickerStore.UpdateTelegramFileID(item.ID, "")
+			}
+		}
 	}
 
 	if item.FilePath != "" {
@@ -1225,6 +1264,27 @@ func (c *TelegramChannel) handleMessages(ctx context.Context, messages []*telego
 		content = cleaned
 	}
 
+	// In group chats, prefix the message with the sender so the attribution
+	// survives into session history and summaries. Without this, multi-speaker
+	// context collapses into anonymous "user said ..." lines and the model can
+	// misattribute earlier messages to the current speaker. This runs AFTER the
+	// trigger checks so it cannot affect mention/trigger matching.
+	// Never prefix slash commands: the command dispatcher requires content to
+	// start with "/", and a prefix would silently break every group command.
+	if message.Chat.Type != "private" && !strings.HasPrefix(strings.TrimSpace(content), "/") {
+		name := strings.TrimSpace(user.FirstName)
+		if name == "" {
+			name = strings.TrimSpace(user.Username)
+		}
+		if name == "" {
+			name = platformID
+		}
+		if user.Username != "" && user.FirstName != "" {
+			name = fmt.Sprintf("%s (@%s)", user.FirstName, user.Username)
+		}
+		content = fmt.Sprintf("[%s]: %s", name, content)
+	}
+
 	if message.ReplyToMessage != nil {
 		quotedMedia := quotedTelegramMediaRefs(
 			message.ReplyToMessage,
@@ -1424,21 +1484,21 @@ func indexedMediaFilename(prefix, ext string, index int, total int) string {
 	return fmt.Sprintf("%s-%d%s", prefix, index+1, ext)
 }
 
-// reStickerTag matches the AI's sticker directive. The optional separator class
-// tolerates a rendered form where underscores were dropped by Markdown italics.
-var reStickerTag = regexp.MustCompile(`\[\s*SEND_?STICKER\s*:\s*([a-zA-Z0-9_\- ]+?)\s*\]`)
+// reStickerTag matches a legacy sticker directive that older builds embedded in
+// the reply text. Stickers are now sent through the send_sticker tool, but a
+// model replaying an old conversation may still emit this tag; strip it so users
+// never see the raw marker. No sticker is sent from it — the tool is the only
+// delivery path, which keeps sending explicit and verifiable.
+var reStickerTag = regexp.MustCompile(`\[\s*SEND_?STICKER\s*:\s*[a-zA-Z0-9_\- ]+?\s*\]`)
 
-// extractStickerTag pulls a sticker directive out of raw model output and
-// returns the remaining text plus the raw sticker ID. It must run BEFORE any
-// Markdown processing: the ID can contain underscores that Markdown would treat
-// as italic delimiters and strip.
-func extractStickerTag(content string) (string, string) {
-	m := reStickerTag.FindStringSubmatch(content)
-	if len(m) < 2 {
-		return content, ""
+// stripLegacyStickerTag removes any legacy [SEND_STICKER: id] marker from the
+// reply text. It must run BEFORE Markdown processing so the ID's underscores are
+// not mangled. It never triggers a send.
+func stripLegacyStickerTag(content string) string {
+	if !strings.Contains(content, "STICKER") {
+		return content
 	}
-	id := strings.ReplaceAll(strings.TrimSpace(m[1]), " ", "")
-	return reStickerTag.ReplaceAllString(content, ""), id
+	return strings.TrimSpace(reStickerTag.ReplaceAllString(content, ""))
 }
 
 // lookupStickerFuzzy finds a sticker whose ID matches the given one ignoring
@@ -1933,9 +1993,9 @@ func (s *telegramStreamer) Update(ctx context.Context, content string) error {
 }
 
 func (s *telegramStreamer) Finalize(ctx context.Context, content string) error {
-	// Streaming bypasses TelegramChannel.Send, so intercept the sticker
-	// directive here too (before Markdown processing).
-	content, stickerID := extractStickerTag(content)
+	// Streaming bypasses TelegramChannel.Send, so strip legacy sticker markers
+	// here too (before Markdown processing). Delivery goes through the tool.
+	content = stripLegacyStickerTag(content)
 
 	htmlContent := markdownToTelegramHTML(content)
 	tgMsg := tu.Message(tu.ID(s.chatID), htmlContent)
@@ -1952,15 +2012,6 @@ func (s *telegramStreamer) Finalize(ctx context.Context, content string) error {
 				"len":     len(content),
 			})
 			return fmt.Errorf("telegram finalize: %w", err)
-		}
-	}
-
-	if stickerID != "" {
-		if err := sendStickerToChat(ctx, s.bot, s.chatID, s.threadID, stickerID); err != nil {
-			logger.WarnCF("telegram", "Failed to send sticker (stream finalize)", map[string]any{
-				"sticker_id": stickerID,
-				"error":      err.Error(),
-			})
 		}
 	}
 

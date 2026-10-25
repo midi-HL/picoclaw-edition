@@ -43,6 +43,14 @@ type ReactionCapable interface {
 	ReactToMessage(ctx context.Context, chatID, messageID string) (undo func(), err error)
 }
 
+// StickerCapable — channels that can send a sticker from a managed sticker pack.
+// SendStickerByID resolves the ID against the channel's sticker store and
+// delivers it; it returns an error when the sticker is unknown or delivery fails,
+// so the calling tool can report the real outcome back to the model.
+type StickerCapable interface {
+	SendStickerByID(ctx context.Context, chatID, stickerID string) error
+}
+
 // PlaceholderCapable — channels that can send a placeholder message
 // (e.g. "Thinking... 💭") that will later be edited to the actual response.
 // The channel MUST also implement MessageEditor for the placeholder to be useful.

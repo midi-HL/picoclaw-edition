@@ -58,12 +58,12 @@ func (c stickerPromptContributor) ContributePrompt(ctx context.Context, req Prom
 
 	var sb strings.Builder
 	sb.WriteString("\n\n你现在可以使用以下 Telegram 自定义贴纸/表情包来让你的回答更加生动有趣。\n")
-	sb.WriteString("如果你认为在当前的对话语境下发送某个表情包非常合适，请直接在你的回复文本末尾或合适位置显式输出占位符标记：[SEND_STICKER: <StickerID>]。\n")
+	sb.WriteString("如果你认为在当前的对话语境下发送某个表情包非常合适，请调用 send_sticker 工具（参数 sticker_id 填下方列表中的 StickerID），不要在回复正文里写任何标记文本。\n")
 	sb.WriteString("注意：\n")
-	sb.WriteString("1. 每次回复最多只能发送 1 张表情包。\n")
+	sb.WriteString("1. 每次回复最多只能调用 1 次 send_sticker。\n")
 	sb.WriteString("2. 只有在确实非常契合、幽默或者需要强烈表达情绪时才使用，不要频繁滥用。\n")
-	sb.WriteString("3. 不要使用任何不包含在下方列表中的 StickerID。\n")
-	sb.WriteString("4. 严禁只用该标记回复，它必须配合你的文本对话一同输出，且此标记会被系统截断不展示给用户。\n\n")
+	sb.WriteString("3. 只能使用下方列表中原样给出的 StickerID（下划线、连字符都是 ID 的一部分，必须一字不差地照抄）。\n")
+	sb.WriteString("4. 调用工具后请照常输出文本回复；工具会返回成功或失败，若失败请如实告知用户，不要谎称已发送。\n\n")
 	sb.WriteString("当前可用表情包列表：\n")
 
 	for _, item := range stickers {
@@ -72,8 +72,11 @@ func (c stickerPromptContributor) ContributePrompt(ctx context.Context, req Prom
 			emojiHint = "无"
 		}
 		desc := item.Description
-		if desc == "" {
-			desc = "自定义表情包"
+		if strings.TrimSpace(desc) == "" {
+			// No visual description available (model has no vision, or it was not
+			// generated). Say so plainly so the model judges from the emoji
+			// instead of assuming a generic description.
+			desc = "（无画面描述，请仅依据 Emoji 判断情绪）"
 		}
 		sb.WriteString(fmt.Sprintf("- StickerID: \"%s\" | Emoji: %s | 适用场景: \"%s\" | 描述: \"%s\"\n",
 			item.ID, emojiHint, item.UsageScenarios, desc))

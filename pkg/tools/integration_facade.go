@@ -19,6 +19,8 @@ type (
 	InstallSkillTool         = integrationtools.InstallSkillTool
 	MessageTool              = integrationtools.MessageTool
 	ReactionTool             = integrationtools.ReactionTool
+	SendStickerTool          = integrationtools.SendStickerTool
+	StickerSender            = integrationtools.StickerSender
 	SendTTSTool              = integrationtools.SendTTSTool
 	APIKeyPool               = integrationtools.APIKeyPool
 	APIKeyIterator           = integrationtools.APIKeyIterator
@@ -56,6 +58,10 @@ func NewMessageTool() *MessageTool {
 
 func NewReactionTool() *ReactionTool {
 	return integrationtools.NewReactionTool()
+}
+
+func NewSendStickerTool() *SendStickerTool {
+	return integrationtools.NewSendStickerTool()
 }
 
 func NewSendTTSTool(provider tts.TTSProvider, store media.MediaStore) *SendTTSTool {

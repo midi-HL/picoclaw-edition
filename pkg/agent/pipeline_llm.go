@@ -302,6 +302,7 @@ func (p *Pipeline) CallLLM(
 	if backoffSecs <= 0 {
 		backoffSecs = 2
 	}
+	mediaFallbackTried := false
 	for retry := 0; retry <= maxRetries; retry++ {
 		exec.response, err = callLLM(exec.callMessages, exec.providerToolDefs)
 		if err == nil {
@@ -316,7 +317,43 @@ func (p *Pipeline) CallLLM(
 			break
 		}
 
+		// The active model cannot accept the attached media.
+		//
+		// Images: keep upstream behaviour — fail with a clear message so the user
+		// knows the model cannot see images (and can configure an image model).
+		//
+		// Audio/video only: these arrive passively from channels (e.g. Telegram
+		// voice/video) and the user often has no alternative. Rather than failing
+		// the whole turn, retry once with the media stripped so they still get a
+		// text answer.
 		if hasMediaRefs(exec.callMessages) && isVisionUnsupportedError(err) {
+			if !mediaFallbackTried && messagesContainOnlyAudioVideo(exec.callMessages) {
+				mediaFallbackTried = true
+				al.emitEvent(
+					runtimeevents.KindAgentLLMRetry,
+					ts.eventMeta("runTurn", "turn.llm.retry"),
+					LLMRetryPayload{
+						Attempt:    1,
+						MaxRetries: 1,
+						Reason:     "media_unsupported_fallback",
+						Error:      err.Error(),
+						Backoff:    0,
+					},
+				)
+				logger.WarnCF("agent", "Model rejected attached media; retrying without media", map[string]any{
+					"model": exec.llmModelName,
+					"error": err.Error(),
+				})
+				exec.callMessages = stripMessageMedia(exec.callMessages)
+				exec.callMessages = append(
+					exec.callMessages,
+					providers.Message{
+						Role:    "user",
+						Content: "[系统提示：当前模型无法直接读取本条消息附带的图片/音频/视频，已自动忽略这些附件。请基于文字内容继续回答；如确实需要，可请用户改用文字描述。]",
+					},
+				)
+				continue
+			}
 			return ControlBreak, visionUnsupportedModelError(
 				exec.llmModelName,
 				len(ts.agent.ImageCandidates) > 0,

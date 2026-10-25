@@ -230,6 +230,28 @@ func registerSharedTools(
 			agent.Tools.Register(reactionTool)
 		}
 
+		// Sticker tool: send a sticker from the managed pack as a real tool call.
+		// This replaces the old text-directive parsing, which silently failed when
+		// the tag was split across chunks or formatted slightly differently.
+		if cfg.Tools.IsToolEnabled("send_sticker") {
+			sendStickerTool := tools.NewSendStickerTool()
+			sendStickerTool.SetSender(func(ctx context.Context, channel, chatID, stickerID string) error {
+				if al.channelManager == nil {
+					return fmt.Errorf("channel manager not configured")
+				}
+				ch, ok := al.channelManager.GetChannel(channel)
+				if !ok {
+					return fmt.Errorf("channel %s not found", channel)
+				}
+				sc, ok := ch.(channels.StickerCapable)
+				if !ok {
+					return fmt.Errorf("channel %s does not support sending stickers", channel)
+				}
+				return sc.SendStickerByID(ctx, chatID, stickerID)
+			})
+			agent.Tools.Register(sendStickerTool)
+		}
+
 		// Send file tool (outbound media via MediaStore — store injected later by SetMediaStore)
 		if cfg.Tools.IsToolEnabled("send_file") {
 			sendFileTool := tools.NewSendFileTool(

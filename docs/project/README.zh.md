@@ -303,14 +303,24 @@ make build-all
 
 ### 发送方向 —— AI 发贴纸
 
-AI 可输出 `[SEND_STICKER: <StickerID>]` 标记来发送贴纸。频道会**在原始模型输出上、任何 Markdown 处理之前**拦截该标记（ID 可能含下划线，否则会被 Markdown 当斜体分隔符吃掉），从可见文本中剥离，并从本地贴纸库发送（已知 `file_id` 时直接发送，否则上传文件并缓存返回的 `file_id`）。
+AI 通过专用的 **`send_sticker` 工具**（`pkg/tools/integration/sticker.go`，在 `pkg/agent/agent_init.go` 注册）发送贴纸，而**不再**在回复正文里写文本标记。
 
-两个关键健壮性点：
+**为什么改用工具（而不是旧的 `[SEND_STICKER: id]` 文本标记）：** 旧方案在频道层解析模型回复文本，十分脆弱：
 
-- **两条发送路径都处理该标记。** 回复可能走流式路径（`telegramStreamer.Finalize` → `sendMessage`），它绕过 `TelegramChannel.Send`；因此两处都做拦截。
-- **模糊 ID 兜底。** 若 ID 仍被改写（分隔符丢失），发送时会忽略 `_` 与 `-` 进行匹配。
+- 出站文本会在**到达频道之前**就被切片，靠近 4000 字边界的标记可能被切成两半而静默丢失；
+- 模型永远不知道贴纸是否真的发出去了，于是会谎称"已发送"；
+- 失败只出现在服务器日志里。
 
-可用贴纸列表由 `pkg/agent/sticker_prompt.go` 注入系统提示词。贴纸包通过 Launcher Web 界面管理（`web/backend/api/sticker.go`、`pkg/gateway/sticker_api.go`、`pkg/sticker/`）。
+工具会把真实的成功/失败结果返回给模型，因此它始终知道结果。工具描述中已标明**仅限 Telegram**。
+
+配套行为：
+
+- **旧标记只剥离、不执行。** 若旧会话让模型仍输出 `[SEND_STICKER: id]`，`stripLegacyStickerTag` 会把它从可见文本中移除（`TelegramChannel.Send` 与流式终结器两处都处理），用户不会看到裸标记；贴纸只通过工具发送。
+- **模糊 ID 兜底。** 若 ID 的分隔符丢失，匹配时会忽略 `_` 与 `-`。
+- **file_id 失败回退本地文件。** Telegram `file_id` 是 bot 级作用域的；用缓存的 `file_id` 发送被拒时，频道改为上传本地文件（仅当错误表明 ID 确实无效时才清除缓存）。
+- **跨机器路径修复。** 贴纸库存的是绝对路径；若库从其他机器迁移过来，会按文件名在当前媒体目录内重新定位（发送与预览均适用）。
+
+可用贴纸列表由 `pkg/agent/sticker_prompt.go` 注入系统提示词（始终包含 emoji；若没有画面描述会明确说明，让模型仅凭 emoji 判断）。贴纸包通过 Launcher Web 界面管理（`web/backend/api/sticker.go`、`pkg/gateway/sticker_api.go`、`pkg/sticker/`）。
 
 ### 贴纸包导入（Launcher 界面）
 
@@ -339,6 +349,24 @@ AI 可输出 `[SEND_STICKER: <StickerID>]` 标记来发送贴纸。频道会**�
 ### 凭据卫生
 
 上游仓库历史中含硬编码的第三方 OAuth 客户端凭据。本 Fork 在 `pkg/auth/oauth.go` 及 Antigravity 文档中保留**占位符**（`YOUR_GOOGLE_CLIENT_ID_BASE64`），并以**单个压缩提交**同步上游代码，使那些携带凭据的提交不会进入本仓库历史。
+
+---
+
+## 11. 群聊发送者归属与媒体回退
+
+### 群聊中的说话人归属
+
+会话历史只存 `role` / `content` / `media`，**没有 sender 字段**。群聊压缩之后，多人的话会被拍平成匿名的"用户说…"，模型可能把早先的消息错认成当前说话人。
+
+修复（`pkg/channels/telegram/telegram.go`）：非私聊中，每条入站消息在**触发/提及判断之后**加上前缀 `[名字 (@username)]: `（因此不影响 `/命令` 分发与 @ 匹配）。前缀会写入历史，归属在压缩后依然保留。动态系统上下文会说明该前缀是系统标注，模型回复时**不得模仿**。
+
+### 非全模态模型收到音频/视频
+
+Telegram 语音与视频会在当前轮内联为 `data:audio/...` / `data:video/...`。不支持音频/视频的模型会拒绝。
+
+回退（`pkg/agent/pipeline_llm.go`）：当模型报告不支持媒体、**且该轮媒体仅含音频/视频**时，剥离媒体重试一次，并附系统提示说明附件已忽略，用户仍能得到文字回答。
+
+图片**有意不降级**：不支持图片时直接报错并提示配置视觉模型，与上游行为一致（由 `TestAgentLoop_VisionUnsupportedErrorReturnsClearFailure` 与 `TestAgentLoop_LoadImageFollowUpWithoutImageModelFailsClearly` 锁定）。
 
 ---
 

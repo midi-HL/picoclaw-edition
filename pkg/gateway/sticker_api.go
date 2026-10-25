@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -61,6 +62,16 @@ func (h *StickerAPIHandler) handleStickerMediaFile(w http.ResponseWriter, r *htt
 		writeJSONError(w, http.StatusBadRequest, "invalid path")
 		return
 	}
+	// The stored path may come from another machine (e.g. a migrated sticker DB).
+	// If it does not exist, fall back to the same basename inside the current
+	// media directory so previews keep working after moving hosts.
+	if _, statErr := os.Stat(absPath); statErr != nil {
+		if candidate := filepath.Join(mediaDir, filepath.Base(rawPath)); candidate != absPath {
+			if _, cErr := os.Stat(candidate); cErr == nil {
+				absPath = candidate
+			}
+		}
+	}
 	rel, err := filepath.Rel(mediaDir, absPath)
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		writeJSONError(w, http.StatusForbidden, "path outside sticker media directory")
@@ -78,7 +89,24 @@ func (h *StickerAPIHandler) handleStickerMediaFile(w http.ResponseWriter, r *htt
 		return
 	}
 
-	w.Header().Set("Content-Type", "image/webp")
+	// Detect the real content type instead of assuming webp: imported animated/
+	// video stickers are saved as .jpg thumbnails, and serving them as image/webp
+	// makes browsers refuse to render the preview.
+	contentType := mime.TypeByExtension(strings.ToLower(filepath.Ext(absPath)))
+	if !strings.HasPrefix(contentType, "image/") {
+		head := make([]byte, 512)
+		if n, _ := f.Read(head); n > 0 {
+			contentType = http.DetectContentType(head[:n])
+		}
+		if _, err := f.Seek(0, io.SeekStart); err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "failed to read file")
+			return
+		}
+	}
+	if !strings.HasPrefix(contentType, "image/") {
+		contentType = "application/octet-stream"
+	}
+	w.Header().Set("Content-Type", contentType)
 	http.ServeContent(w, r, filepath.Base(absPath), time.Time{}, f)
 }
 
@@ -160,8 +188,14 @@ func (h *StickerAPIHandler) handleImportSet(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Get default LLM provider for auto-describing
-	provider, _, providerErr := providers.CreateProvider(h.cfg)
+	// Get default LLM provider for auto-describing. The model name returned here
+	// must be passed to Chat: providers reject an empty model name.
+	provider, providerModel, providerErr := providers.CreateProvider(h.cfg)
+	if providerErr != nil {
+		logger.WarnCF("sticker", "No LLM provider for auto-describing stickers; descriptions will be skipped", map[string]any{
+			"error": providerErr.Error(),
+		})
+	}
 
 	imported := 0
 	failed := 0
@@ -200,11 +234,15 @@ func (h *StickerAPIHandler) handleImportSet(w http.ResponseWriter, r *http.Reque
 			continue
 		}
 
-		// Auto-generate description using default LLM
+		// Auto-generate a description with the default LLM. When the model cannot
+		// see images (or the call fails), the description stays empty on purpose:
+		// the model should judge the sticker from its emoji hint rather than from
+		// an invented description. The sticker list prompt always shows the emoji
+		// and renders an empty description neutrally.
 		description := ""
 		usageScenarios := "适用于日常聊天中的相关场景"
 		if providerErr == nil && provider != nil {
-			description = h.autoDescribeSticker(ctx, provider, localPath)
+			description = h.autoDescribeSticker(ctx, provider, providerModel, localPath)
 		}
 
 		// Build emoji hint
@@ -436,7 +474,12 @@ func (h *StickerAPIHandler) downloadStickerFile(bot *telego.Bot, ctx context.Con
 }
 
 // autoDescribeSticker uses the default LLM to generate a description for a sticker.
-func (h *StickerAPIHandler) autoDescribeSticker(ctx context.Context, provider providers.LLMProvider, imagePath string) string {
+func (h *StickerAPIHandler) autoDescribeSticker(
+	ctx context.Context,
+	provider providers.LLMProvider,
+	model string,
+	imagePath string,
+) string {
 	dataURL, err := sticker.FileToDataURL(imagePath)
 	if err != nil {
 		logger.WarnCF("sticker", "Failed to read image for description", map[string]any{
@@ -456,7 +499,7 @@ func (h *StickerAPIHandler) autoDescribeSticker(ctx context.Context, provider pr
 		},
 	}
 
-	response, err := provider.Chat(ctx, messages, nil, "", nil)
+	response, err := provider.Chat(ctx, messages, nil, model, nil)
 	if err != nil {
 		logger.WarnCF("sticker", "Failed to generate sticker description", map[string]any{
 			"error": err.Error(),

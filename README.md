@@ -304,22 +304,39 @@ therefore invisible to the model (it only saw a path), so it could not react to 
 
 ### Outbound — AI sends a sticker
 
-The AI can send a sticker by emitting a `[SEND_STICKER: <StickerID>]` marker. The
-channel intercepts it **from the raw model output, before any Markdown processing**
-(the ID may contain underscores, which Markdown would otherwise treat as italic
-delimiters and strip), removes the marker from the visible text, and sends the
-sticker from the local store (via Telegram `file_id` when known, otherwise by
-uploading the file and caching the returned `file_id`).
+The AI sends stickers through a dedicated **`send_sticker` tool**
+(`pkg/tools/integration/sticker.go`, registered in `pkg/agent/agent_init.go`), not
+by embedding text markers.
 
-Two important robustness points:
-- **Both send paths handle the marker.** Replies may be delivered by the streaming
-  path (`telegramStreamer.Finalize` → `sendMessage`), which bypasses
-  `TelegramChannel.Send`; the intercept therefore runs in both.
-- **Fuzzy ID fallback.** If the ID still arrives mangled (separators dropped), the
-  send resolves it by matching IDs while ignoring `_` and `-`.
+**Why a tool instead of the old `[SEND_STICKER: id]` text directive:** the marker
+approach parsed the model's reply text inside the channel layer, which was fragile:
+- outbound text is split into chunks *before* it reaches the channel, so a marker
+  near the 4000-rune boundary could be cut in half and silently dropped;
+- the model never learned whether the sticker was actually delivered, so it could
+  claim success when nothing was sent;
+- failures only appeared in server logs.
+
+The tool returns an explicit success/error result to the model, so it always knows
+the real outcome. Its description marks it **Telegram-only**.
+
+Supporting behaviour:
+- **Legacy markers are stripped, never acted on.** If an old conversation makes the
+  model emit `[SEND_STICKER: id]`, `stripLegacyStickerTag` removes it from the
+  visible text (both in `TelegramChannel.Send` and in the streaming finalizer) so
+  users never see the raw directive. Delivery only ever happens via the tool.
+- **Fuzzy ID fallback.** If an ID arrives with separators dropped, lookup matches
+  IDs ignoring `_` and `-`.
+- **file_id → local file fallback.** Telegram `file_id`s are bot-scoped; if sending
+  by a cached `file_id` is rejected, the channel uploads the local file instead
+  (and clears the cached ID only when the error says it is actually invalid).
+- **Cross-machine path repair.** Sticker DB entries store absolute paths; if the DB
+  was moved from another host, the file is re-resolved inside the current media
+  directory by basename (applies to both sending and preview).
 
 The available sticker list is injected into the system prompt by
-`pkg/agent/sticker_prompt.go`. Sticker packs are managed through the Launcher web UI
+`pkg/agent/sticker_prompt.go` (always includes the emoji hint; when no visual
+description exists it says so and tells the model to judge from the emoji).
+Sticker packs are managed through the Launcher web UI
 (`web/backend/api/sticker.go`, `pkg/gateway/sticker_api.go`, `pkg/sticker/`).
 
 ### Sticker pack import (Launcher UI)
@@ -363,6 +380,38 @@ credentials. This fork keeps **placeholders** (`YOUR_GOOGLE_CLIENT_ID_BASE64`) i
 `pkg/auth/oauth.go` and the Antigravity docs, and the upstream code is synced as a
 **single squashed commit** so those credential-bearing commits never enter this
 repository's history.
+
+---
+
+## 11. Group Chat Attribution & Media Fallback
+
+### Speaker attribution in group chats
+
+Session history stores only `role` / `content` / `media` — no sender field. In group
+chats this means that after compaction, messages from several people collapse into
+anonymous "user said …" lines, and the model can misattribute an earlier message to
+the current speaker.
+
+Fix (`pkg/channels/telegram/telegram.go`): in non-private chats each inbound message
+is prefixed with `[Name (@username)]: ` **after** the mention/trigger checks (so it
+cannot affect `/command` dispatch or mention matching). The prefix is written into
+history, so attribution survives compaction. The dynamic system context explains
+that this prefix is a system annotation the model must not imitate in its replies.
+
+### Non-omni models receiving audio/video
+
+Telegram voice notes and videos are inlined as `data:audio/...` / `data:video/...`
+for the current turn. A model without audio/video support rejects them.
+
+Fallback (`pkg/agent/pipeline_llm.go`): when the model reports unsupported media
+**and the turn's media is audio/video only**, the turn is retried once with the
+media stripped, plus a system note telling the model the attachments were dropped,
+so the user still gets a text answer.
+
+Images are deliberately **not** downgraded: an unsupported image fails with a clear
+message telling the user to configure a vision model, matching upstream behaviour
+(tests `TestAgentLoop_VisionUnsupportedErrorReturnsClearFailure` and
+`TestAgentLoop_LoadImageFollowUpWithoutImageModelFailsClearly` lock this in).
 
 ---
 
