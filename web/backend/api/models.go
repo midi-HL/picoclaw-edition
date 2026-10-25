@@ -43,7 +43,12 @@ type modelResponse struct {
 	Model      string `json:"model"`
 	APIBase    string `json:"api_base,omitempty"`
 	APIKey     string `json:"api_key"`
-	Proxy      string `json:"proxy,omitempty"`
+	// APIKeyCount is the number of configured keys (never the keys themselves).
+	APIKeyCount int `json:"api_key_count,omitempty"`
+	// KeyRotation / ProviderRotation expose the round-robin flags for the edit form.
+	KeyRotation      bool   `json:"key_rotation,omitempty"`
+	ProviderRotation bool   `json:"provider_rotation,omitempty"`
+	Proxy            string `json:"proxy,omitempty"`
 	AuthMethod string `json:"auth_method,omitempty"`
 	// Advanced fields
 	ConnectMode         string                      `json:"connect_mode,omitempty"`
@@ -624,6 +629,9 @@ func (h *Handler) handleListModels(w http.ResponseWriter, r *http.Request) {
 			Model:               modelID,
 			APIBase:             m.APIBase,
 			APIKey:              maskAPIKey(m.APIKey()),
+			APIKeyCount:         len(m.APIKeys),
+			KeyRotation:         m.KeyRotation,
+			ProviderRotation:    m.ProviderRotation,
 			Proxy:               m.Proxy,
 			AuthMethod:          m.AuthMethod,
 			ConnectMode:         m.ConnectMode,
@@ -699,7 +707,8 @@ func (h *Handler) handleAddModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if mc.APIKey != "" {
+	// api_keys array takes precedence; otherwise use the single api_key field.
+	if len(mc.ModelConfig.APIKeys) == 0 && mc.APIKey != "" {
 		mc.ModelConfig.SetAPIKey(mc.APIKey)
 	}
 
@@ -786,12 +795,19 @@ func (h *Handler) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 	}
 	oldModelName := strings.TrimSpace(cfg.ModelList[idx].ModelName)
 
-	// Preserve the existing API key when the caller omits it (empty string).
-	// This lets the UI update api_base / proxy without clearing the stored secret.
-	if mc.APIKey == "" {
-		mc.ModelConfig.SetAPIKey(cfg.ModelList[idx].APIKey())
-	} else {
-		mc.ModelConfig.SetAPIKey(mc.APIKey)
+	// Multi-key handling: an explicit api_keys array wins (it carries every key
+	// for key_rotation). Otherwise fall back to the single api_key field, and
+	// preserve the stored key when the caller omits it — but preserve the whole
+	// stored array, not just its first element.
+	if len(mc.ModelConfig.APIKeys) == 0 {
+		if mc.APIKey == "" {
+			mc.ModelConfig.APIKeys = append(
+				config.SecureStrings(nil),
+				cfg.ModelList[idx].APIKeys...,
+			)
+		} else {
+			mc.ModelConfig.SetAPIKey(mc.APIKey)
+		}
 	}
 	// Preserve existing ExtraBody when omitted (nil), but clear it when
 	// the frontend sends an empty object {} to indicate the field should

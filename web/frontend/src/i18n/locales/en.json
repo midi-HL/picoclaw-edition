@@ -358,7 +358,14 @@
       "extraBodyHint": "Additional JSON fields to inject into the request body, e.g. {\"reasoning_split\": true}.",
       "customHeaders": "Custom Headers",
       "customHeadersHint": "Additional HTTP headers to inject into every request, e.g. {\"X-Source\": \"coding-plan\"}.",
-      "invalidJson": "Invalid JSON format"
+      "invalidJson": "Invalid JSON format",
+      "extraApiKeys": "Extra API keys (rotation)",
+      "extraApiKeysHint": "One per line or comma-separated. With multiple keys, enable rotation below to spread usage.",
+      "extraApiKeysPlaceholder": "sk-key-2\nsk-key-3",
+      "keyRotation": "API key rotation",
+      "keyRotationHint": "Rotate through keys on every request (round-robin). Off = always use the first key, fail over on error.",
+      "providerRotation": "Provider rotation",
+      "providerRotationHint": "Rotate the starting provider of the fallback chain on every request. Off = always start with the first."
     },
     "edit": {
       "title": "Configure {{name}}",

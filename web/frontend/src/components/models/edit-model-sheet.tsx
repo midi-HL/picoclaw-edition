@@ -60,6 +60,9 @@ interface EditForm {
   provider: string
   modelId: string
   apiKey: string
+  extraApiKeys: string
+  keyRotation: boolean
+  providerRotation: boolean
   apiBase: string
   proxy: string
   authMethod: string
@@ -86,11 +89,34 @@ interface EditModelSheetProps {
   providerOptions?: ModelProviderOption[]
 }
 
+// buildMultiKeyPayload turns the "extra keys" textarea into the api_keys array.
+// Keys are separated by newlines or commas. The primary api_key (if provided)
+// comes first. Returns {} when no extra keys are present, so single-key configs
+// keep sending exactly the same payload as before.
+function buildMultiKeyPayload(form: EditForm): Record<string, unknown> {
+  const extra = form.extraApiKeys
+    .split(/[\n,]/)
+    .map((k) => k.trim())
+    .filter((k) => k.length > 0)
+
+  const payload: Record<string, unknown> = {}
+  if (extra.length > 0) {
+    const all = [...(form.apiKey.trim() ? [form.apiKey.trim()] : []), ...extra]
+    payload.api_keys = all
+  }
+  if (form.keyRotation) payload.key_rotation = true
+  if (form.providerRotation) payload.provider_rotation = true
+  return payload
+}
+
 function buildInitialEditForm(model: ModelInfo): EditForm {
   return {
     provider: getCanonicalProviderKey(model.provider),
     modelId: model.model,
     apiKey: "",
+    extraApiKeys: "",
+    keyRotation: model.key_rotation === true,
+    providerRotation: model.provider_rotation === true,
     apiBase: model.api_base ?? "",
     proxy: model.proxy ?? "",
     authMethod: model.auth_method ?? "",
@@ -126,6 +152,9 @@ export function EditModelSheet({
     provider: "",
     modelId: "",
     apiKey: "",
+    extraApiKeys: "",
+    keyRotation: false,
+    providerRotation: false,
     apiBase: "",
     proxy: "",
     authMethod: "",
@@ -379,6 +408,7 @@ export function EditModelSheet({
         model: modelId,
         api_base: submittedApiBase,
         api_key: form.apiKey.trim() || undefined,
+        ...buildMultiKeyPayload(form),
         proxy: form.proxy.trim() || undefined,
         auth_method: authMethodLocked
           ? defaultAuthMethod || undefined
@@ -577,6 +607,45 @@ export function EditModelSheet({
                     placeholder={apiKeyPlaceholder}
                   />
                 </Field>
+              )}
+
+              {!isOAuth && (
+                <Field
+                  label={t("models.field.extraApiKeys")}
+                  hint={t("models.field.extraApiKeysHint")}
+                >
+                  <textarea
+                    value={form.extraApiKeys}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, extraApiKeys: e.target.value }))
+                    }
+                    placeholder={t("models.field.extraApiKeysPlaceholder")}
+                    rows={3}
+                    className="border-input bg-background w-full rounded-md border px-3 py-2 font-mono text-sm"
+                  />
+                </Field>
+              )}
+
+              {!isOAuth && (
+                <SwitchCardField
+                  label={t("models.field.keyRotation")}
+                  hint={t("models.field.keyRotationHint")}
+                  checked={form.keyRotation}
+                  onCheckedChange={(v) =>
+                    setForm((f) => ({ ...f, keyRotation: v }))
+                  }
+                />
+              )}
+
+              {!isOAuth && (
+                <SwitchCardField
+                  label={t("models.field.providerRotation")}
+                  hint={t("models.field.providerRotationHint")}
+                  checked={form.providerRotation}
+                  onCheckedChange={(v) =>
+                    setForm((f) => ({ ...f, providerRotation: v }))
+                  }
+                />
               )}
 
               <Field

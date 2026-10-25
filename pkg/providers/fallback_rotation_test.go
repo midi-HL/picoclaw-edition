@@ -92,3 +92,34 @@ func TestAnyRotating(t *testing.T) {
 		t.Fatal("expected true when one candidate opts in")
 	}
 }
+
+// Simulates 3 keys expanded into 3 candidates (all Rotate=true) and verifies
+// that consecutive requests start with different keys — the real multi-key
+// rotation scenario surfaced through the UI.
+func TestRotation_ThreeKeys_RoundRobinKeys(t *testing.T) {
+	cands := []FallbackCandidate{
+		{Provider: "p", Model: "k1", Rotate: true},
+		{Provider: "p", Model: "k2", Rotate: true},
+		{Provider: "p", Model: "k3", Rotate: true},
+	}
+
+	chain := NewFallbackChain(NewCooldownTracker(), nil)
+	var order []string
+	for i := 0; i < 6; i++ {
+		_, err := chain.ExecuteCandidate(context.Background(), cands,
+			func(_ context.Context, c FallbackCandidate) (*LLMResponse, error) {
+				order = append(order, c.Model)
+				return &LLMResponse{Content: "ok"}, nil
+			})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	want := []string{"k1", "k2", "k3", "k1", "k2", "k3"}
+	for i := range want {
+		if order[i] != want[i] {
+			t.Fatalf("key order = %v, want %v", order, want)
+		}
+	}
+}

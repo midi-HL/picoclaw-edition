@@ -60,6 +60,9 @@ interface AddForm {
   model: string
   apiBase: string
   apiKey: string
+  extraApiKeys: string
+  keyRotation: boolean
+  providerRotation: boolean
   proxy: string
   authMethod: string
   connectMode: string
@@ -80,6 +83,9 @@ const EMPTY_ADD_FORM: AddForm = {
   model: "",
   apiBase: "",
   apiKey: "",
+  extraApiKeys: "",
+  keyRotation: false,
+  providerRotation: false,
   proxy: "",
   authMethod: "",
   connectMode: "",
@@ -102,6 +108,29 @@ interface AddModelSheetProps {
   onMutationSettled?: () => void
   existingModelNames: string[]
   providerOptions?: ModelProviderOption[]
+}
+
+// Same multi-key payload builder as the edit sheet (kept local to avoid a
+// cross-file dependency between the two forms).
+function buildMultiKeyPayload(form: {
+  apiKey: string
+  extraApiKeys: string
+  keyRotation: boolean
+  providerRotation: boolean
+}): Record<string, unknown> {
+  const extra = form.extraApiKeys
+    .split(/[\n,]/)
+    .map((k) => k.trim())
+    .filter((k) => k.length > 0)
+
+  const payload: Record<string, unknown> = {}
+  if (extra.length > 0) {
+    const all = [...(form.apiKey.trim() ? [form.apiKey.trim()] : []), ...extra]
+    payload.api_keys = all
+  }
+  if (form.keyRotation) payload.key_rotation = true
+  if (form.providerRotation) payload.provider_rotation = true
+  return payload
 }
 
 export function AddModelSheet({
@@ -393,6 +422,7 @@ export function AddModelSheet({
         model: modelId,
         api_base: submittedApiBase,
         api_key: form.apiKey.trim() || undefined,
+        ...buildMultiKeyPayload(form),
         proxy: form.proxy.trim() || undefined,
         auth_method: authMethodLocked
           ? defaultAuthMethod || undefined
@@ -603,6 +633,45 @@ export function AddModelSheet({
                     placeholder={apiKeyPlaceholder}
                   />
                 </Field>
+              )}
+
+              {!isOAuth && (
+                <Field
+                  label={t("models.field.extraApiKeys")}
+                  hint={t("models.field.extraApiKeysHint")}
+                >
+                  <textarea
+                    value={form.extraApiKeys}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, extraApiKeys: e.target.value }))
+                    }
+                    placeholder={t("models.field.extraApiKeysPlaceholder")}
+                    rows={3}
+                    className="border-input bg-background w-full rounded-md border px-3 py-2 font-mono text-sm"
+                  />
+                </Field>
+              )}
+
+              {!isOAuth && (
+                <SwitchCardField
+                  label={t("models.field.keyRotation")}
+                  hint={t("models.field.keyRotationHint")}
+                  checked={form.keyRotation}
+                  onCheckedChange={(v) =>
+                    setForm((f) => ({ ...f, keyRotation: v }))
+                  }
+                />
+              )}
+
+              {!isOAuth && (
+                <SwitchCardField
+                  label={t("models.field.providerRotation")}
+                  hint={t("models.field.providerRotationHint")}
+                  checked={form.providerRotation}
+                  onCheckedChange={(v) =>
+                    setForm((f) => ({ ...f, providerRotation: v }))
+                  }
+                />
               )}
 
               <Field

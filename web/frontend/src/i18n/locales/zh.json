@@ -358,7 +358,14 @@
       "customHeaders": "Custom Headers",
       "customHeadersHint": "要注入到每个请求中的额外 HTTP Headers，例如 {\"X-Source\": \"coding-plan\"}。",
       "selectProviderFirst": "请先选择服务商",
-      "invalidJson": "JSON 格式不正确"
+      "invalidJson": "JSON 格式不正确",
+      "extraApiKeys": "额外 API Key（轮询）",
+      "extraApiKeysHint": "每行一个，或用逗号分隔。填写多把 Key 后开启下方轮询即可分摊额度。",
+      "extraApiKeysPlaceholder": "sk-key-2\nsk-key-3",
+      "keyRotation": "API Key 轮询",
+      "keyRotationHint": "每次请求轮换使用不同的 Key（round-robin）。关闭则固定用第一个、失败才切换。",
+      "providerRotation": "服务商轮询",
+      "providerRotationHint": "每次请求轮换 fallback 链的起始服务商。关闭则固定从第一个开始。"
     },
     "edit": {
       "title": "配置 {{name}}",

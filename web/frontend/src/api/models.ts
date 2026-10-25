@@ -10,6 +10,9 @@ export interface ModelInfo {
   model: string
   api_base?: string
   api_key: string
+  api_key_count?: number
+  key_rotation?: boolean
+  provider_rotation?: boolean
   proxy?: string
   auth_method?: string
   // Advanced fields
@@ -172,6 +175,9 @@ export interface TestModelInlineRequest {
   model: string
   api_base?: string
   api_key?: string
+  api_keys?: string[]
+  key_rotation?: boolean
+  provider_rotation?: boolean
   auth_method?: string
   model_index?: number
 }
