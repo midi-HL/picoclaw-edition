@@ -18,6 +18,9 @@ This is the primary documentation for this fork (`picoclaw-edition`). It describ
 - [8. 32-bit Platform Support](#8-32-bit-platform-support)
 - [9. Telegram Stickers (Custom Emoji Packs)](#9-telegram-stickers-custom-emoji-packs)
 - [10. Security](#10-security)
+- [11. Group Chat Attribution & Media Fallback](#11-group-chat-attribution--media-fallback)
+- [12. API Key & Provider Rotation](#12-api-key--provider-rotation)
+- [13. Web Chat File Upload](#13-web-chat-file-upload)
 - [Known Limitations](#known-limitations)
 
 ---
@@ -415,56 +418,102 @@ message telling the user to configure a vision model, matching upstream behaviou
 
 ---
 
-## 12. API Key / Provider Rotation & Web File Upload
+## 12. API Key & Provider Rotation
 
-### Round-robin rotation (opt-in)
+The upstream multi-key support is **failover only**: the first key is always used
+and the next one is tried only after an error. This fork adds optional
+**round-robin rotation**.
 
-Two optional per-model flags change how multiple keys/endpoints are used:
+### How it works
 
-| Flag | Effect |
-|---|---|
-| `key_rotation: true` | Rotate through `api_keys` on every request (round-robin) instead of always using the first key and failing over only on error. |
-| `provider_rotation: true` | Rotate the starting point of the model's fallback chain on every request, so multiple providers/endpoints share load. |
+Rotation does not replace the fallback logic — it only changes **which candidate
+the chain starts with** on each request:
+
+| Request | Start at | Order tried (on failure) |
+|---------|----------|--------------------------|
+| 1 | A | A → B → C |
+| 2 | B | B → C → A |
+| 3 | C | C → A → B |
+
+So failover still works exactly as before; only the entry point rotates.
+
+**Implementation** (`pkg/providers/fallback.go`): `FallbackChain` holds an
+`atomic.Uint64` counter. When any candidate opts in (`Rotate`), `ExecuteCandidate`
+rotates the candidate slice by `counter % len(candidates)`. If nobody opts in,
+the slice is untouched — behaviour is bit-for-bit identical to upstream.
+
+### Configuration
+
+Two optional per-model flags (both default `false`):
 
 ```json
 {
-  "model_name": "gpt-main",
-  "model": "openai/gpt-5.5",
-  "api_keys": ["sk-a", "sk-b", "sk-c"],
+  "model_name": "my-model",
+  "model": "openai/gpt-4o",
+  "api_base": "https://api.example.com/v1",
+  "api_keys": ["sk-key-1", "sk-key-2", "sk-key-3"],
   "key_rotation": true,
-  "fallbacks": ["backup-endpoint"],
   "provider_rotation": true
 }
 ```
 
-**Backward compatible by default.** Both flags default to `false`, and the
-rotation only engages when at least one candidate opts in
-(`anyRotating`). Existing configs keep the historical behaviour exactly:
-always start with the first key/provider, fail over on error. Rotation merely
-changes the *starting point*; the failover order remains a stable ring, so a
-failing candidate is still skipped to the next one.
+- `key_rotation` — rotate through `api_keys` on every request.
+- `provider_rotation` — rotate the starting entry of the fallback chain (useful
+  when several entries point at different providers/endpoints).
 
-### Web chat file upload
+### Enabling it from the Web UI
 
-The web chat composer now accepts arbitrary files (not just images):
+Models → edit (or add) a model:
 
-- **Images** keep the existing path — inlined as multimodal media
-  (`media` field), unchanged.
-- **Other files** are sent in a new optional `files` field as
-  `{filename, content_type, data}` data URLs, written to
-  `<workspace>/uploads/<messageID>/`, and exposed to the model as
-  `[file:/path]` tags that it can read with `read_file`.
+1. **API Key** — the primary key (as before).
+2. **Extra API keys (rotation)** — additional keys, one per line or comma-separated.
+3. Toggle **API key rotation** and/or **Provider rotation**.
 
-Design notes:
-- Files land **inside the agent workspace** on purpose: the default
-  `restrict_to_workspace` is `true`, so a system temp dir would be unreadable by
-  `read_file` without loosening the sandbox.
-- Files are written **only after** the sender passes the allow-list check.
-- Filenames are sanitized (no separators, no `..`); a 10 MB per-file cap applies.
-- A message may consist of files only (no text) — it is not rejected as empty.
-- Payloads without a `files` field behave exactly as before.
+Without extra keys the request payload is identical to previous versions, so
+existing configurations keep working unchanged.
+
+### Notes
+
+- Multi-key entries are expanded at load time into `name`, `name__key_1`, … as a
+  fallback chain; rotation reuses that expansion, so no new storage format.
+- Keys are never returned by the API — the model list only exposes
+  `api_key_count`.
+- Cooldown / rate-limit tracking still applies per key, so a rate-limited key is
+  skipped and the next one is used.
 
 ---
+
+## 13. Web Chat File Upload
+
+The web chat previously accepted **images only**. This fork adds generic file
+upload.
+
+**Flow:**
+
+1. The composer sends non-image files as base64 `data:` URLs in a `files` array
+   (images keep using `media` so they are inlined as multimodal input).
+2. `pkg/channels/pico` validates them, writes them under
+   `<picoclaw-home>/workspace/uploads/<message-id>/`, and appends
+   `[file:/abs/path]` tags to the message.
+3. The model reads them with the existing `read_file` tool.
+
+**Why the workspace:** the default config sets `restrict_to_workspace: true`, so
+files outside the workspace would be unreadable by `read_file`. Writing into
+`workspace/uploads/` needs no security relaxation.
+
+**Limits & safety:**
+
+- Max 10 MB per file (frontend) and `max_media_size` on the backend.
+- Filenames are sanitised: separators and `..` are replaced, so a crafted name
+  cannot escape the uploads directory.
+- Files are persisted **only after** the sender passes the allowlist check, so an
+  unauthorised client cannot write to disk.
+- Image attachments are rejected on the `files` path (they must use `media`), so
+  there is exactly one code path per media kind.
+
+**Backward compatibility:** payloads without a `files` key behave exactly as
+before; a message with neither text, inline media, nor files is still rejected as
+`empty_content`.
 
 ## Known Limitations
 
