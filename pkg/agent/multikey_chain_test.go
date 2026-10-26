@@ -114,3 +114,33 @@ func TestRotation_FlagsAreIndependent(t *testing.T) {
 		}
 	}
 }
+
+// Several non-virtual entries may share a model_name (load balancing). The
+// fallback lookup must scan all of them, not stop at the first one.
+func TestMultiKeyRotation_FindsFallbacksAmongDuplicateNames(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "dup.json")
+	raw := `{
+  "version": 3,
+  "agents": { "defaults": { "model_name": "dup", "provider": "openai" } },
+  "model_list": [
+    { "model_name": "dup", "provider": "openai", "model": "x",
+      "api_base": "https://a.invalid/v1", "api_keys": ["k1"], "enabled": true },
+    { "model_name": "dup", "provider": "openai", "model": "x",
+      "api_base": "https://b.invalid/v1", "api_keys": ["k2", "k3"],
+      "key_rotation": true, "enabled": true }
+  ]
+}`
+	if err := os.WriteFile(path, []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	fb := resolveAgentFallbacks(cfg, nil, &cfg.Agents.Defaults, "dup")
+	if len(fb) == 0 {
+		t.Fatal("expected fallbacks from the duplicate-name entry that has multiple keys")
+	}
+}

@@ -651,6 +651,8 @@ func resolveAgentFallbacks(
 	}
 
 	// Multi-key expansion attaches the virtual key entries to the primary model.
+	// Several non-virtual entries may share the same model_name (allowed for
+	// load balancing), so scan all of them rather than stopping at the first.
 	if cfg != nil && len(cfg.ModelList) > 0 {
 		name := strings.TrimSpace(primaryModel)
 		if name == "" {
@@ -666,7 +668,6 @@ func resolveAgentFallbacks(
 			if len(mc.Fallbacks) > 0 {
 				return mc.Fallbacks
 			}
-			break
 		}
 	}
 
