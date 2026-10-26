@@ -109,9 +109,31 @@ func cloneModelConfigForResolution(
 	return &clone
 }
 
+// hasVirtualKeySiblings reports whether mc is part of a multi-key expansion,
+// i.e. there exist virtual "__key_N" entries derived from the same model name.
+func hasVirtualKeySiblings(cfg *config.Config, mc *config.ModelConfig) bool {
+	if cfg == nil || mc == nil {
+		return false
+	}
+	base := mc.ModelName
+	if i := strings.Index(base, "__key_"); i > 0 {
+		base = base[:i]
+	}
+	for _, other := range cfg.ModelList {
+		if other == nil || other == mc || !other.IsVirtual() {
+			continue
+		}
+		if strings.HasPrefix(other.ModelName, base+"__key_") {
+			return true
+		}
+	}
+	return false
+}
+
 func candidateFromModelConfig(
 	defaultProvider string,
 	mc *config.ModelConfig,
+	hasKeySiblings bool,
 ) (providers.FallbackCandidate, bool) {
 	if mc == nil {
 		return providers.FallbackCandidate{}, false
@@ -122,6 +144,22 @@ func candidateFromModelConfig(
 		return providers.FallbackCandidate{}, false
 	}
 
+	// Round-robin opt-in. Two distinct intents:
+	//   - key_rotation: rotate across the virtual __key_N entries produced by
+	//     multi-key expansion (same model/provider, different key).
+	//   - provider_rotation: rotate across genuinely different provider/model
+	//     entries listed as fallbacks.
+	// A virtual entry only ever represents an extra key, so provider_rotation
+	// alone must not cause key rotation, and vice versa.
+	// Key rotation applies to the whole key family: the primary entry rotates
+	// too when it has virtual __key_N siblings. Provider rotation only applies
+	// to real (non-virtual) entries and only when there is no key family to
+	// rotate — otherwise a provider_rotation flag would silently rotate keys.
+	rotate := mc.KeyRotation && (mc.IsVirtual() || hasKeySiblings)
+	if !rotate && !mc.IsVirtual() && mc.ProviderRotation && !hasKeySiblings {
+		rotate = true
+	}
+
 	return providers.FallbackCandidate{
 		Provider:    protocol,
 		Model:       modelID,
@@ -129,8 +167,7 @@ func candidateFromModelConfig(
 		RPM:         mc.RPM,
 		IdentityKey: modelConfigIdentityKey(mc),
 		ConfigKey:   modelConfigResolutionKey(defaultProvider, mc),
-		// Round-robin opt-in (default false keeps historical behaviour).
-		Rotate: mc.KeyRotation || mc.ProviderRotation,
+		Rotate:      rotate,
 	}, true
 }
 
@@ -191,7 +228,7 @@ func resolveModelCandidate(
 	defaultProvider = effectiveDefaultProvider(defaultProvider)
 
 	if mc := lookupModelConfigByRef(cfg, raw, defaultProvider); mc != nil {
-		candidate, ok := candidateFromModelConfig(defaultProvider, mc)
+		candidate, ok := candidateFromModelConfig(defaultProvider, mc, hasVirtualKeySiblings(cfg, mc))
 		if !ok {
 			return providers.FallbackCandidate{}, false
 		}

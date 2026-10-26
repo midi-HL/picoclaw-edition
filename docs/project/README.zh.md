@@ -419,6 +419,33 @@ Telegram 语音与视频会在当前轮内联为 `data:audio/...` / `data:video/
 
 不填额外密钥时，请求体与旧版本完全一致，现有配置无需改动。
 
+### 重要：不需要手写 model_fallbacks
+
+多 key 在加载时会被展开成 `name`、`name__key_1`、`name__key_2`…… 的 fallback 链，
+并由 `resolveAgentFallbacks` 从**主模型自身的** `ModelConfig.Fallbacks` 读取。
+因此只写 `key_rotation: true` 即可生效，**不需要**再手工往
+`agents.defaults.model_fallbacks` 里补虚拟条目。
+
+> 早期版本存在字段错位（展开写进 `ModelConfig.Fallbacks`，运行时却只读
+> `AgentDefaults.ModelFallbacks`），导致 `key_rotation` 单独配置无效。该问题已修复，
+> 并由 `TestMultiKeyRotation_EndToEnd_CandidatesFromConfig` 与
+> `TestKeyRotation_RealChain_UsesAllKeys` 两道门禁锁定。
+
+### 如何验证真的轮询了
+
+轮询计数器在**长驻进程**内维护，一次性 CLI（`picoclaw agent -m`）每次都是新进程，
+看不到轮换。请用 `picoclaw gateway` 常驻，并在服务商侧看调用量，或在 `api_base`
+前挂一个记录 `Authorization` 的代理：
+
+```bash
+awk -F'	' '{print $5}' keys.log | sort | uniq -c
+```
+
+配置正确时应当出现多把不同的 key，且次数大致均衡。
+
+`key_rotation` 与 `provider_rotation` **相互独立**：只有开启了对应开关的候选参与轮转，
+其余候选保持原位。
+
 ---
 
 ## 13. Web 对话上传文件

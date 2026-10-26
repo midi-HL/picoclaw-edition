@@ -33,18 +33,33 @@ type FallbackCandidate struct {
 	Rotate bool
 }
 
-// rotateCandidates returns a copy of candidates rotated left by offset. The
-// relative order is preserved, so failover semantics stay identical — only the
-// starting point changes.
+// rotateCandidates rotates only the candidates that opted in (Rotate == true),
+// leaving every other candidate at its original position. The opt-in subset
+// keeps its relative order, so failover semantics stay identical — only the
+// entry point within that subset changes.
+//
+// Rotating a subset (rather than the whole slice) is what lets key_rotation and
+// provider_rotation be independent: key candidates and provider candidates can
+// opt in separately without dragging the other group along.
 func rotateCandidates(candidates []FallbackCandidate, offset uint64) []FallbackCandidate {
-	n := len(candidates)
+	idx := make([]int, 0, len(candidates))
+	for i, c := range candidates {
+		if c.Rotate {
+			idx = append(idx, i)
+		}
+	}
+	n := len(idx)
 	if n <= 1 || offset == 0 {
 		return candidates
 	}
+
+	rotated := make([]FallbackCandidate, len(candidates))
+	copy(rotated, candidates)
+
 	start := int(offset % uint64(n))
-	rotated := make([]FallbackCandidate, 0, n)
-	rotated = append(rotated, candidates[start:]...)
-	rotated = append(rotated, candidates[:start]...)
+	for k := 0; k < n; k++ {
+		rotated[idx[k]] = candidates[idx[(k+start)%n]]
+	}
 	return rotated
 }
 

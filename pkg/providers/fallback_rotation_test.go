@@ -61,7 +61,12 @@ func TestFallback_RotationEnabled_RoundRobin(t *testing.T) {
 }
 
 func TestRotateCandidates_PreservesOrder(t *testing.T) {
-	in := []FallbackCandidate{{Model: "a"}, {Model: "b"}, {Model: "c"}}
+	// Only candidates that opted in (Rotate) are rotated.
+	in := []FallbackCandidate{
+		{Model: "a", Rotate: true},
+		{Model: "b", Rotate: true},
+		{Model: "c", Rotate: true},
+	}
 
 	got := rotateCandidates(in, 1)
 	if len(got) != 3 || got[0].Model != "b" || got[1].Model != "c" || got[2].Model != "a" {
@@ -78,9 +83,21 @@ func TestRotateCandidates_PreservesOrder(t *testing.T) {
 	if same := rotateCandidates(in, 0); len(same) != 3 || same[0].Model != "a" {
 		t.Fatal("rotate(0) must be a no-op")
 	}
-	single := []FallbackCandidate{{Model: "only"}}
+	single := []FallbackCandidate{{Model: "only", Rotate: true}}
 	if got := rotateCandidates(single, 5); len(got) != 1 || got[0].Model != "only" {
 		t.Fatal("single candidate must not be rotated")
+	}
+
+	// Non-opted-in candidates keep their positions.
+	mixed := []FallbackCandidate{
+		{Model: "fixed1"},
+		{Model: "a", Rotate: true},
+		{Model: "b", Rotate: true},
+	}
+	got = rotateCandidates(mixed, 1)
+	if got[0].Model != "fixed1" || got[1].Model != "b" || got[2].Model != "a" {
+		t.Fatalf("mixed rotate(1) = %v, want [fixed1 b a]",
+			[]string{got[0].Model, got[1].Model, got[2].Model})
 	}
 }
 

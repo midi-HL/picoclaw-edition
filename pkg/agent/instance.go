@@ -107,7 +107,7 @@ func NewAgentInstance(
 	definition := loadAgentDefinition(workspace)
 
 	model := resolveAgentModel(agentCfg, defaults, definition)
-	fallbacks := resolveAgentFallbacks(agentCfg, defaults)
+	fallbacks := resolveAgentFallbacks(cfg, agentCfg, defaults, model)
 
 	restrict := defaults.RestrictToWorkspace
 	readRestrict := restrict && !defaults.AllowReadOutsideWorkspace
@@ -632,10 +632,44 @@ func resolveAgentModel(
 }
 
 // resolveAgentFallbacks resolves the fallback models for an agent.
-func resolveAgentFallbacks(agentCfg *config.AgentConfig, defaults *config.AgentDefaults) []string {
+//
+// Resolution order:
+//  1. AgentConfig.Model.Fallbacks — explicit per-agent override.
+//  2. The primary model's own ModelConfig.Fallbacks — this is where
+//     expandMultiKeyModels stores the virtual "__key_N" entries created from
+//     additional api_keys. Reading it here is what makes key_rotation work
+//     without also hand-writing agents.defaults.model_fallbacks.
+//  3. AgentDefaults.ModelFallbacks — global default.
+func resolveAgentFallbacks(
+	cfg *config.Config,
+	agentCfg *config.AgentConfig,
+	defaults *config.AgentDefaults,
+	primaryModel string,
+) []string {
 	if agentCfg != nil && agentCfg.Model != nil && agentCfg.Model.Fallbacks != nil {
 		return agentCfg.Model.Fallbacks
 	}
+
+	// Multi-key expansion attaches the virtual key entries to the primary model.
+	if cfg != nil && len(cfg.ModelList) > 0 {
+		name := strings.TrimSpace(primaryModel)
+		if name == "" {
+			name = strings.TrimSpace(defaults.GetModelName())
+		}
+		for _, mc := range cfg.ModelList {
+			if mc == nil || mc.IsVirtual() {
+				continue
+			}
+			if strings.TrimSpace(mc.ModelName) != name {
+				continue
+			}
+			if len(mc.Fallbacks) > 0 {
+				return mc.Fallbacks
+			}
+			break
+		}
+	}
+
 	return defaults.ModelFallbacks
 }
 

@@ -475,11 +475,28 @@ existing configurations keep working unchanged.
 ### Notes
 
 - Multi-key entries are expanded at load time into `name`, `name__key_1`, … as a
-  fallback chain; rotation reuses that expansion, so no new storage format.
+  fallback chain. `resolveAgentFallbacks` reads that chain from the **primary
+  model's own** `ModelConfig.Fallbacks`, so `key_rotation: true` works on its own
+  — you do **not** need to hand-write `agents.defaults.model_fallbacks`.
 - Keys are never returned by the API — the model list only exposes
   `api_key_count`.
 - Cooldown / rate-limit tracking still applies per key, so a rate-limited key is
   skipped and the next one is used.
+- `key_rotation` and `provider_rotation` are independent: only the candidates
+  that opted in are rotated, the rest keep their positions.
+
+### Verifying it works
+
+Rotation lives in the long-running process, so a one-shot CLI run cannot show
+it (the counter restarts each process). Use a gateway and check the keys on the
+provider side, or put a logging proxy in front of `api_base`:
+
+```bash
+# count distinct Authorization headers seen by your proxy
+awk -F'	' '{print $5}' keys.log | sort | uniq -c
+```
+
+A correct setup shows several distinct keys with roughly balanced counts.
 
 ---
 
