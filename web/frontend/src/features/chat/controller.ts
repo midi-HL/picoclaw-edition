@@ -330,8 +330,12 @@ export function sendChatMessage({
   }
 
   const normalizedContent = content.trim()
+  // Keep every attachment that carries data: images (inlined as multimodal
+  // media) AND generic files (sent through the "files" payload). Filtering on
+  // type === "image" here silently dropped files, which made file-only messages
+  // return early and the send button appear dead.
   const normalizedAttachments = attachments
-    .filter((attachment) => attachment.type === "image" && attachment.url)
+    .filter((attachment) => Boolean(attachment.url))
     .map((attachment) => ({ ...attachment }))
 
   if (!normalizedContent && normalizedAttachments.length === 0) {

@@ -105,3 +105,31 @@ func TestHandleMessageSend_FileOnlyIsNotRejected(t *testing.T) {
 		t.Fatal("file-only payload must not be treated as empty content")
 	}
 }
+
+// SetWorkspaceDir must be honoured: attachments go to <workspace>/uploads so
+// read_file (restricted to the workspace) can reach them even when the
+// workspace is configured somewhere other than <picoclaw-home>/workspace.
+func TestPersistInboundFiles_UsesConfiguredWorkspace(t *testing.T) {
+	custom := t.TempDir()
+	c := &PicoChannel{}
+	c.SetWorkspaceDir(custom)
+
+	dataURL := "data:text/plain;base64," + base64.StdEncoding.EncodeToString([]byte("x"))
+	tags, err := c.persistInboundFiles(map[string]any{
+		"files": []any{map[string]any{"filename": "a.txt", "data": dataURL}},
+	}, "msg-ws")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(tags) != 1 {
+		t.Fatalf("expected 1 tag, got %v", tags)
+	}
+
+	path := strings.TrimSuffix(strings.TrimPrefix(tags[0], "[file:"), "]")
+	absCustom, _ := filepath.Abs(custom)
+	absPath, _ := filepath.Abs(path)
+	rel, err := filepath.Rel(absCustom, absPath)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		t.Fatalf("file %s not under configured workspace %s", absPath, absCustom)
+	}
+}

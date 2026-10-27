@@ -98,6 +98,10 @@ type PicoChannel struct {
 	bc                 *config.Channel
 	config             *config.PicoSettings
 	maxMediaSize       int
+	// workspaceDir is the agent workspace where inbound file attachments are
+	// stored so read_file can access them. Empty falls back to
+	// <picoclaw-home>/workspace.
+	workspaceDir       string
 	upgrader           websocket.Upgrader
 	connections        map[string]*picoConn            // connID -> *picoConn
 	sessionConnections map[string]map[string]*picoConn // sessionID -> connID -> *picoConn
@@ -108,6 +112,12 @@ type PicoChannel struct {
 	deleteMessageFn    func(context.Context, string, string) error
 	// broadcastFn lets tests intercept outbound broadcasts. nil → broadcastToSession.
 	broadcastFn func(chatID string, msg PicoMessage) error
+}
+
+// SetWorkspaceDir sets the agent workspace used for inbound file attachments.
+// Optional: when unset, <picoclaw-home>/workspace is used.
+func (c *PicoChannel) SetWorkspaceDir(dir string) {
+	c.workspaceDir = strings.TrimSpace(dir)
 }
 
 // NewPicoChannel creates a new Pico Protocol channel.
@@ -1320,7 +1330,11 @@ func (c *PicoChannel) persistInboundFiles(payload map[string]any, messageID stri
 	// Store under the agent workspace so the model can read the files with the
 	// read_file tool. The default config restricts reads to the workspace, so a
 	// system temp dir would be unreadable without loosening that restriction.
-	dir := filepath.Join(config.GetHome(), "workspace", "uploads", dirName)
+	base := c.workspaceDir
+	if base == "" {
+		base = filepath.Join(config.GetHome(), "workspace")
+	}
+	dir := filepath.Join(base, "uploads", dirName)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("failed to create upload dir: %w", err)
 	}

@@ -26,6 +26,9 @@ func init() {
 			if channelName != config.ChannelPico {
 				ch.SetName(channelName)
 			}
+			// Inbound file attachments are stored in the agent workspace so
+			// read_file (restricted to the workspace by default) can read them.
+			ch.SetWorkspaceDir(cfg.Agents.Defaults.Workspace)
 			return ch, nil
 		},
 	)
