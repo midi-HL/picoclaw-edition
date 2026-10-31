@@ -45,6 +45,7 @@ export interface CoreConfigForm {
   evolutionColdPathTimesText: string
   // ASR
   asrEnabled: boolean
+  asrSource: "cloud" | "local"
   asrModelName: string
   asrProvider: "generic" | "mimo"
   asrMimoLanguage: "auto" | "zh" | "en"
@@ -180,6 +181,7 @@ export const EMPTY_FORM: CoreConfigForm = {
   evolutionColdPathTrigger: "after_turn",
   evolutionColdPathTimesText: "",
   asrEnabled: false,
+  asrSource: "cloud",
   asrModelName: "",
   asrProvider: "generic",
   asrMimoLanguage: "auto",
@@ -486,7 +488,8 @@ export function buildFormFromConfig(config: unknown): CoreConfigForm {
           .join("\n")
       : EMPTY_FORM.evolutionColdPathTimesText,
     asrModelName: asString(voice.model_name),
-    asrEnabled: asString(voice.model_name) !== "",
+    asrEnabled: asString(voice.model_name) !== "" || asString(voice.asr_source) === "local",
+    asrSource: asString(voice.asr_source) === "local" ? "local" : "cloud",
     asrProvider:
       asRecord(voice.mimo_config).asr_provider === "mimo" ? "mimo" : "generic",
     asrMimoLanguage: ((): "auto" | "zh" | "en" => {

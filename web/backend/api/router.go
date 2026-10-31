@@ -30,6 +30,10 @@ type Handler struct {
 	weixinFlows map[string]*weixinFlow
 	wecomMu     sync.Mutex
 	wecomFlows  map[string]*wecomFlow
+
+	// Local ASR (sherpa-onnx) install/download progress.
+	asrTaskOnce sync.Once
+	asrTaskMgr  *asrTaskManager
 }
 
 // NewHandler creates an instance of the API handler.
@@ -93,6 +97,9 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 
 	// Model list management
 	h.registerModelRoutes(mux)
+
+	// Local ASR (sherpa-onnx) install / model download / test
+	h.registerLocalASRRoutes(mux)
 
 	// Channel catalog (for frontend navigation/config pages)
 	h.registerChannelRoutes(mux)

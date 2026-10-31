@@ -1404,6 +1404,45 @@ export function ASRSection({
       >
         {form.asrEnabled && (
           <div className="space-y-3">
+            <Field label={t("pages.config.asr_source")} layout="setting-row">
+              <Select
+                value={form.asrSource}
+                onValueChange={(v) =>
+                  onFieldChange("asrSource", v as "cloud" | "local")
+                }
+              >
+                <SelectTrigger className="h-9">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="cloud">
+                    {t("pages.config.asr_source_cloud")}
+                  </SelectItem>
+                  <SelectItem value="local">
+                    {t("pages.config.asr_source_local")}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </Field>
+
+            {form.asrSource === "local" && (
+              <div className="text-muted-foreground rounded-md border border-dashed p-3 text-sm">
+                {t("pages.config.asr_local_hint")}
+                <a
+                  href="/asr"
+                  className="text-primary ml-1 underline underline-offset-2"
+                >
+                  {t("pages.config.asr_local_link")}
+                </a>
+              </div>
+            )}
+
+            {form.asrSource === "cloud" && (
+              <details className="rounded-md border p-2" open>
+                <summary className="cursor-pointer text-sm font-medium">
+                  {t("pages.config.asr_cloud_advanced")}
+                </summary>
+                <div className="mt-3 space-y-3">
             <Field label={t("pages.config.asr_provider")} layout="setting-row">
               <Select
                 value={form.asrProvider}
@@ -1483,6 +1522,9 @@ export function ASRSection({
                   />
                 </Field>
               </>
+            )}
+                </div>
+              </details>
             )}
           </div>
         )}

@@ -13,7 +13,8 @@
     "show_more_channels": "More",
     "show_less_channels": "Less",
     "config": "Config",
-    "logs": "Logs"
+    "logs": "Logs",
+    "asr": "Local ASR"
   },
   "launcherLogin": {
     "title": "Sign in",
@@ -1030,7 +1031,13 @@
       "factory_reset_confirm_desc": "This will reset all configuration to factory defaults. API keys and security credentials will be preserved. A backup of the current config will be created.",
       "factory_reset_confirm": "Reset to Defaults",
       "factory_reset_success": "Configuration has been reset to factory defaults.",
-      "factory_reset_error": "Failed to reset configuration."
+      "factory_reset_error": "Failed to reset configuration.",
+      "asr_source": "Source",
+      "asr_source_cloud": "Cloud model",
+      "asr_source_local": "Local sherpa-onnx",
+      "asr_local_hint": "Local transcription needs the runtime installed and a model downloaded.",
+      "asr_local_link": "Open the ASR page →",
+      "asr_cloud_advanced": "Cloud model settings (existing)"
     },
     "logs": {
       "log_level_error": "Failed to update log level.",
@@ -1059,5 +1066,40 @@
       "title": "View Documentation",
       "description": "Need more help? Click the documentation button in the top right corner to view detailed guides and configuration docs."
     }
+  },
+  "asr": {
+    "refresh": "Refresh",
+    "loading": "Loading…",
+    "unsupportedTitle": "Local speech-to-text is not supported on this platform",
+    "unsupportedBody": "No prebuilt sherpa-onnx package for {{platform}}. Please use cloud transcription.",
+    "runtimeTitle": "Local ASR runtime (sherpa-onnx)",
+    "installed": "Installed",
+    "notInstalled": "Not installed",
+    "runtimeHint": "The runtime is a standalone sherpa-onnx executable. It is never compiled into PicoClaw; it is used locally for transcription.",
+    "installRuntime": "Download & install runtime",
+    "modelsTitle": "Models",
+    "modelsHint": "Models can be downloaded after the runtime is installed. Start with paraformer-zh-small (small and fast).",
+    "recommended": "Recommended",
+    "speed": "Speed",
+    "accuracy": "Accuracy",
+    "memory": "Memory",
+    "languages": "Languages",
+    "download": "Download",
+    "downloading": "Downloading…",
+    "enable": "Enable",
+    "enabled": "Enabled",
+    "disabled": "Disabled",
+    "removed": "Removed",
+    "completed": "Completed",
+    "failed": "Failed",
+    "preparing": "Preparing…",
+    "testTitle": "Test & settings",
+    "testNeedModel": "Download and enable a model first.",
+    "threads": "Threads (0 = auto)",
+    "save": "Save",
+    "testUpload": "Upload audio to test",
+    "testing": "Transcribing…",
+    "testDone": "Transcription done",
+    "loadFailed": "Failed to load local ASR status"
   }
 }

@@ -16,6 +16,8 @@ import (
 
 	"github.com/sipeed/picoclaw/pkg/agent"
 	"github.com/sipeed/picoclaw/pkg/audio/asr"
+	// Blank import registers the sherpa-onnx local transcriber factory.
+	_ "github.com/sipeed/picoclaw/pkg/audio/asr/local"
 	"github.com/sipeed/picoclaw/pkg/audio/tts"
 	"github.com/sipeed/picoclaw/pkg/bus"
 	"github.com/sipeed/picoclaw/pkg/channels"

@@ -627,9 +627,11 @@ export function ConfigPage() {
             },
           },
           voice: {
-            model_name: form.asrEnabled
-              ? form.asrModelName.trim() || null
-              : null,
+            asr_source: form.asrEnabled ? form.asrSource : null,
+            model_name:
+              form.asrEnabled && form.asrSource === "cloud"
+                ? form.asrModelName.trim() || null
+                : null,
             mimo_config: {
               asr_provider: form.asrProvider,
               asr_language: form.asrMimoLanguage,

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/sipeed/picoclaw/pkg/config"
+	"github.com/sipeed/picoclaw/pkg/logger"
 	"github.com/sipeed/picoclaw/pkg/providers"
 )
 
@@ -13,6 +14,16 @@ const elevenLabsSupportedModelID = "scribe_v1"
 func ElevenLabsSupportedModelID() string {
 	return elevenLabsSupportedModelID
 }
+
+// LocalFactory builds a local (sherpa-onnx) transcriber from config. It is
+// registered by the local package to avoid an import cycle (local imports asr
+// for the Transcriber interface).
+type LocalFactory func(cfg *config.LocalASRConfig) (Transcriber, error)
+
+var localFactory LocalFactory
+
+// RegisterLocalFactory wires the sherpa-onnx implementation into detection.
+func RegisterLocalFactory(f LocalFactory) { localFactory = f }
 
 type Transcriber interface {
 	Name() string
@@ -125,6 +136,17 @@ func fallbackTranscriberFromModelConfig(modelCfg *config.ModelConfig) Transcribe
 func DetectTranscriber(cfg *config.Config) Transcriber {
 	if cfg == nil {
 		return nil
+	}
+
+	// Local (sherpa-onnx) takes precedence when explicitly enabled.
+	if cfg.Voice.IsLocalASRActive() && localFactory != nil {
+		if tr, err := localFactory(cfg.Voice.LocalASR); err == nil && tr != nil {
+			return tr
+		} else if err != nil {
+			logger.WarnCF("voice", "Local ASR unavailable, falling back to cloud", map[string]any{
+				"error": err.Error(),
+			})
+		}
 	}
 
 	if modelName := strings.TrimSpace(cfg.Voice.ModelName); modelName != "" {

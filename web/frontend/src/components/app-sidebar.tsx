@@ -1,4 +1,4 @@
-import { IconChevronRight } from "@tabler/icons-react"
+import { IconChevronRight, IconMicrophone } from "@tabler/icons-react"
 import {
   IconAtom,
   IconChevronsDown,
@@ -108,6 +108,12 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             title: "navigation.models",
             url: "/models",
             icon: IconAtom,
+            translateTitle: true,
+          },
+          {
+            title: "navigation.asr",
+            url: "/asr",
+            icon: IconMicrophone,
             translateTitle: true,
           },
           {

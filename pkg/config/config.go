@@ -767,6 +767,47 @@ type VoiceConfig struct {
 	EchoTranscription bool           `json:"echo_transcription"           env:"PICOCLAW_VOICE_ECHO_TRANSCRIPTION"`
 	ElevenLabsAPIKey  string         `json:"elevenlabs_api_key,omitempty" env:"PICOCLAW_VOICE_ELEVENLABS_API_KEY"`
 	MimoConfig        *VoiceMimoConfig `json:"mimo_config,omitempty"`
+
+	// ASRSource selects where transcription comes from: "cloud" (default, the
+	// existing behaviour) or "local" (sherpa-onnx). Empty is treated as "cloud"
+	// so existing configs keep working untouched.
+	ASRSource string `json:"asr_source,omitempty" env:"PICOCLAW_VOICE_ASR_SOURCE"`
+	// LocalASR configures the offline sherpa-onnx transcriber. Optional: when
+	// nil nothing changes for existing users.
+	LocalASR *LocalASRConfig `json:"local_asr,omitempty"`
+}
+
+// LocalASRConfig configures the offline sherpa-onnx transcriber.
+//
+// sherpa-onnx is an external binary the user installs from the web UI; it is
+// never linked into PicoClaw (which stays CGO-free).
+type LocalASRConfig struct {
+	// Enabled turns local transcription on. ASRSource must also be "local".
+	Enabled bool `json:"enabled,omitempty"`
+	// BinaryPath is the absolute path to sherpa-onnx-offline(.exe).
+	BinaryPath string `json:"binary_path,omitempty"`
+	// ModelDir is the directory holding the active model (model.int8.onnx +
+	// tokens.txt).
+	ModelDir string `json:"model_dir,omitempty"`
+	// ModelID is the catalogue id of the active model (for the UI).
+	ModelID string `json:"model_id,omitempty"`
+	// ModelType selects the CLI flags: paraformer | sensevoice | zipformer-ctc |
+	// transducer. Defaults to paraformer.
+	ModelType string `json:"model_type,omitempty"`
+	// Threads is the CPU thread count; 0 = auto.
+	Threads int `json:"threads,omitempty"`
+	// Language is a hint passed to models that accept it (SenseVoice).
+	Language string `json:"language,omitempty"`
+	// TimeoutSeconds bounds a single transcription; 0 = 120s.
+	TimeoutSeconds int `json:"timeout_seconds,omitempty"`
+}
+
+// IsLocalASRActive reports whether local transcription should be used.
+func (c *VoiceConfig) IsLocalASRActive() bool {
+	if c == nil || c.LocalASR == nil || !c.LocalASR.Enabled {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(c.ASRSource), "local")
 }
 
 // VoiceMimoConfig holds MiMo-specific ASR/TTS settings.
