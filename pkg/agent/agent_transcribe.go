@@ -16,8 +16,11 @@ func (al *AgentLoop) transcribeAudioInMessage(ctx context.Context, msg bus.Inbou
 		return msg, false
 	}
 
-	// If no transcriber is configured, still process audio annotations.
-	// Audio will be passed as data URLs for multimodal models to handle directly.
+	// No transcriber configured. Do NOT forward raw audio to the model (text
+	// models reject it with HTTP 400 and the turn dies). Keep the media ref so
+	// resolveMediaRefs emits a `[voice:/path]` path tag instead of inlined bytes,
+	// and add a note telling the model it can call transcribe_audio — which will
+	// then report precisely why it is unavailable.
 	if al.transcriber == nil {
 		hasAudio := false
 		for _, ref := range msg.Media {
@@ -31,9 +34,19 @@ func (al *AgentLoop) transcribeAudioInMessage(ctx context.Context, msg bus.Inbou
 		if !hasAudio {
 			return msg, false
 		}
-		// Replace [voice] placeholders with a note that audio is attached.
-		newContent := audioAnnotationRe.ReplaceAllString(msg.Content, "[audio message attached]")
-		msg.Content = newContent
+		const notice = "[系统提示：用户发送了一条语音消息。当前没有可用的语音转文字服务，" +
+			"你无法直接听到音频。如果消息里有 `[voice:/路径]` 或 `[audio:/路径]` 标签，" +
+			"可以调用 transcribe_audio 工具尝试转写（它会返回失败原因）；" +
+			"也可以直接告诉用户可以在「配置 → 语音转文字」里开启本地或云端转写，" +
+			"或把内容打成文字发过来。不要假装听到了内容。]"
+		if strings.TrimSpace(msg.Content) == "" {
+			msg.Content = notice
+		} else if !strings.Contains(msg.Content, notice) {
+			msg.Content += "\n" + notice
+		}
+		logger.WarnCF("voice", "No transcriber: kept audio ref for transcribe_audio tool", map[string]any{
+			"channel": msg.Channel, "chat_id": msg.ChatID,
+		})
 		return msg, true
 	}
 
@@ -76,15 +89,18 @@ func (al *AgentLoop) transcribeAudioInMessage(ctx context.Context, msg bus.Inbou
 		text := transcriptions[idx]
 		idx++
 		if text == "" {
-			return match
+			return "[系统提示：用户发送了一条语音，但语音转写失败（可能是 ASR 服务未就绪或音频格式不支持）。请如实告知用户转写失败，并建议重发或改用文字。]"
 		}
-		return "[voice: " + text + "]"
+		// IMPORTANT: this is TRANSCRIBED TEXT, not a file path. Use a distinct
+		// marker so the model never mistakes it for `[voice:/path]` and tries to
+		// call transcribe_audio on spoken words.
+		return "[语音转写] " + text
 	})
 
 	// Append any remaining transcriptions not matched by an annotation.
 	for ; idx < len(transcriptions); idx++ {
 		if transcriptions[idx] != "" {
-			newContent += "\n[voice: " + transcriptions[idx] + "]"
+			newContent += "\n[语音转写] " + transcriptions[idx]
 		}
 	}
 

@@ -252,6 +252,32 @@ func registerSharedTools(
 			agent.Tools.Register(sendStickerTool)
 		}
 
+		// Speech-to-text tool. The model decides when to call it after seeing a
+		// `[voice:/path]` tag; we never forward raw audio to the model because
+		// text-only models reject it with HTTP 400 and the whole turn dies.
+		if cfg.Tools.IsToolEnabled("transcribe_audio") {
+			transcribeTool := tools.NewTranscribeAudioTool()
+			transcribeTool.SetStatusCheck(func(context.Context) error {
+				tr := al.Transcriber()
+				if tr == nil {
+					return fmt.Errorf("no speech-to-text backend is configured")
+				}
+				return nil
+			})
+			transcribeTool.SetTranscriber(func(ctx context.Context, path string) (string, error) {
+				tr := al.Transcriber()
+				if tr == nil {
+					return "", fmt.Errorf("no speech-to-text backend is configured")
+				}
+				res, err := tr.Transcribe(ctx, path)
+				if err != nil {
+					return "", err
+				}
+				return res.Text, nil
+			})
+			agent.Tools.Register(transcribeTool)
+		}
+
 		// Send file tool (outbound media via MediaStore — store injected later by SetMediaStore)
 		if cfg.Tools.IsToolEnabled("send_file") {
 			sendFileTool := tools.NewSendFileTool(

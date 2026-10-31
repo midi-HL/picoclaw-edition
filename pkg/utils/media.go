@@ -16,7 +16,13 @@ import (
 	"github.com/sipeed/picoclaw/pkg/media"
 )
 
-var audioExtensions = []string{".mp3", ".wav", ".ogg", ".m4a", ".flac", ".aac", ".wma"}
+var audioExtensions = []string{
+	".mp3", ".wav", ".ogg", ".m4a", ".flac", ".aac", ".wma",
+	// Telegram voice notes are Opus in an Ogg container with a .oga extension;
+	// without this entry IsAudioFile() returns false and the audio is forwarded
+	// to the model verbatim, which makes text-only models fail with HTTP 400.
+	".oga", ".opus", ".weba",
+}
 
 func AudioFormat(path string) (string, error) {
 	ext := strings.ToLower(filepath.Ext(path))

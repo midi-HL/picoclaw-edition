@@ -425,6 +425,9 @@ func DefaultConfig() *Config {
 			SendSticker: ToolConfig{
 				Enabled: true,
 			},
+			TranscribeAudio: ToolConfig{
+				Enabled: true,
+			},
 			MCP: MCPConfig{
 				ToolConfig: ToolConfig{
 					Enabled: false,

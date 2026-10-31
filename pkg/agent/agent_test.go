@@ -7111,8 +7111,11 @@ func TestResolveMediaRefs_AudioInjectsAudioPath(t *testing.T) {
 	}
 	result := resolveMediaRefs(messages, store, config.DefaultMaxMediaSize, 0)
 
-	if len(result[0].Media) != 1 || !strings.HasPrefix(result[0].Media[0], "data:audio/ogg;base64,") {
-		t.Fatalf("expected 1 audio data URL media, got %#v", result[0].Media)
+	// User audio is deliberately NOT inlined: text-only models reject audio
+	// parts with HTTP 400 and the whole turn fails. The model gets a path tag
+	// and calls transcribe_audio when it wants the text.
+	if len(result[0].Media) != 0 {
+		t.Fatalf("user audio must not be inlined, got %#v", result[0].Media)
 	}
 	expected := "voice.ogg [audio:" + oggPath + "]"
 	if result[0].Content != expected {

@@ -159,6 +159,11 @@ func (cb *ContextBuilder) getIdentity(includeToolUseRule bool) string {
 		rules,
 		accuracyRule,
 		"**Context summaries** - Conversation summaries provided as context are approximate references only. They may be incomplete or outdated. Always defer to explicit user instructions over summary content.",
+		"**Voice messages** - Two markers mean different things. " +
+			"(1) `[voice:/absolute/path]` or `[audio:/absolute/path]` = an audio FILE not yet transcribed; call the `transcribe_audio` tool with that exact path. " +
+			"(2) `[语音转写] text` = the speech has ALREADY been transcribed and `text` is what the user said; use it directly and do NOT call transcribe_audio on it. " +
+			"When answering a voice message, make clear you understood speech (e.g. \"你说的语音里提到…\"), not typed text. " +
+			"If transcription is unavailable or fails, say so honestly and suggest enabling speech-to-text in Settings or resending as text. Never pretend you heard audio you did not transcribe.",
 		"**Multimodal input** - When you receive audio files as attachments, you can listen to them directly. For video files, use the `load_video` tool to load the video so you can analyze its frames.",
 		"**File attachments** - A message may contain tags like `[file:/absolute/path]`. These are files the user uploaded. Read them with the `read_file` tool before answering; never claim a file was not received when such a tag is present.",
 	)

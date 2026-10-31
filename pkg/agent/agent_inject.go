@@ -51,6 +51,16 @@ func (al *AgentLoop) SetTranscriber(t asr.Transcriber) {
 	al.transcriber = t
 }
 
+// Transcriber returns the configured speech-to-text backend, or nil when none
+// is available. The transcribe_audio tool reads this lazily because the
+// transcriber is injected after tools are registered.
+func (al *AgentLoop) Transcriber() asr.Transcriber {
+	if al == nil {
+		return nil
+	}
+	return al.transcriber
+}
+
 func (al *AgentLoop) SetReloadFunc(fn func() error) {
 	al.reloadFunc = fn
 }

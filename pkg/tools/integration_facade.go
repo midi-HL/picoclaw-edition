@@ -20,6 +20,8 @@ type (
 	MessageTool              = integrationtools.MessageTool
 	ReactionTool             = integrationtools.ReactionTool
 	SendStickerTool          = integrationtools.SendStickerTool
+	TranscribeAudioTool      = integrationtools.TranscribeAudioTool
+	AudioTranscriber         = integrationtools.AudioTranscriber
 	StickerSender            = integrationtools.StickerSender
 	SendTTSTool              = integrationtools.SendTTSTool
 	APIKeyPool               = integrationtools.APIKeyPool
@@ -62,6 +64,10 @@ func NewReactionTool() *ReactionTool {
 
 func NewSendStickerTool() *SendStickerTool {
 	return integrationtools.NewSendStickerTool()
+}
+
+func NewTranscribeAudioTool() *TranscribeAudioTool {
+	return integrationtools.NewTranscribeAudioTool()
 }
 
 func NewSendTTSTool(provider tts.TTSProvider, store media.MediaStore) *SendTTSTool {

@@ -17,6 +17,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -85,7 +86,14 @@ func (t *Transcriber) Transcribe(ctx context.Context, audioFilePath string) (*as
 		return nil, fmt.Errorf("local asr: audio file not found: %w", err)
 	}
 
-	args, err := t.buildArgs(audioFilePath)
+	// sherpa-onnx only reads RIFF/WAV; convert Ogg/Opus (Telegram voice) first.
+	wavPath, cleanup, err := ensureWAV(ctx, audioFilePath)
+	if err != nil {
+		return nil, err
+	}
+	defer cleanup()
+
+	args, err := t.buildArgs(wavPath)
 	if err != nil {
 		return nil, err
 	}
@@ -246,4 +254,56 @@ func init() {
 	asr.RegisterLocalFactory(func(cfg *config.LocalASRConfig) (asr.Transcriber, error) {
 		return New(cfg)
 	})
+}
+
+// ensureWAV makes sure sherpa-onnx receives a RIFF/WAV file.
+//
+// Telegram voice notes arrive as Ogg/Opus (.oga) and sherpa-onnx's reader
+// rejects anything that is not RIFF ("Expected chunk_id RIFF. Given: 0x5367674f"
+// — 0x5367674f is "OggS"). When the input is not already a WAV we convert it
+// with ffmpeg to 16 kHz mono PCM, which is what the models expect.
+//
+// Returns the path to use and a cleanup function. If ffmpeg is missing the
+// caller gets an explicit error so the model can tell the user what to install.
+func ensureWAV(ctx context.Context, path string) (string, func(), error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", func() {}, fmt.Errorf("open audio: %w", err)
+	}
+	head := make([]byte, 4)
+	n, _ := io.ReadFull(f, head)
+	f.Close()
+	if n == 4 && string(head) == "RIFF" {
+		return path, func() {}, nil
+	}
+
+	ffmpeg, err := exec.LookPath("ffmpeg")
+	if err != nil {
+		return "", func() {}, fmt.Errorf(
+			"audio is not WAV and ffmpeg is not installed; install ffmpeg to transcribe %s",
+			filepath.Ext(path))
+	}
+
+	out, err := os.CreateTemp("", "picoclaw-asr-*.wav")
+	if err != nil {
+		return "", func() {}, fmt.Errorf("create temp wav: %w", err)
+	}
+	outPath := out.Name()
+	out.Close()
+	cleanup := func() { _ = os.Remove(outPath) }
+
+	cmd := exec.CommandContext(ctx, ffmpeg,
+		"-hide_banner", "-loglevel", "error", "-y",
+		"-i", path,
+		"-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le",
+		outPath,
+	)
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		cleanup()
+		return "", func() {}, fmt.Errorf("ffmpeg conversion failed: %v (%s)",
+			err, strings.TrimSpace(stderr.String()))
+	}
+	return outPath, cleanup, nil
 }

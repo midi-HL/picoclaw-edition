@@ -288,6 +288,14 @@ func (c *PicoChannel) Stop(ctx context.Context) error {
 	return nil
 }
 
+// VoiceCapabilities declares that the Pico channel accepts audio input, so the
+// web UI can send voice messages for local/cloud transcription. Declared via the
+// interface (rather than the deprecated asrCapableChannels map) so it stays in
+// sync with the channel implementation.
+func (c *PicoChannel) VoiceCapabilities() channels.VoiceCapabilities {
+	return channels.VoiceCapabilities{ASR: true}
+}
+
 // WebhookPath implements channels.WebhookHandler.
 func (c *PicoChannel) WebhookPath() string { return "/pico/" }
 

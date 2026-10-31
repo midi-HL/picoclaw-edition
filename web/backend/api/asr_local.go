@@ -192,13 +192,23 @@ func (h *Handler) registerLocalASRRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/asr/local/uninstall", h.handleLocalASRUninstall)
 }
 
-// asrRoot is <picoclaw-home>/asr.
-func asrRoot() string {
-	return filepath.Join(config.GetHome(), "asr")
+// asrRoot is the ASR data directory.
+//
+// It is derived from the directory holding the config file this handler was
+// constructed with — NOT from config.GetHome(). The launcher may be started
+// with an explicit config path that has nothing to do with $PICOCLAW_HOME, and
+// in that case GetHome() points somewhere else entirely, making the UI report
+// "not installed" for files that are actually present.
+func (h *Handler) asrRoot() string {
+	dir := filepath.Dir(h.configPath)
+	if dir == "" || dir == "." {
+		return filepath.Join(config.GetHome(), "asr")
+	}
+	return filepath.Join(dir, "asr")
 }
 
-func asrBinDir() string    { return filepath.Join(asrRoot(), "bin") }
-func asrModelsDir() string { return filepath.Join(asrRoot(), "models") }
+func (h *Handler) asrBinDir() string    { return filepath.Join(h.asrRoot(), "bin") }
+func (h *Handler) asrModelsDir() string { return filepath.Join(h.asrRoot(), "models") }
 
 func sherpaBinaryName() string {
 	if runtime.GOOS == "windows" {
@@ -207,7 +217,9 @@ func sherpaBinaryName() string {
 	return "sherpa-onnx-offline"
 }
 
-func sherpaBinaryPath() string { return filepath.Join(asrBinDir(), sherpaBinaryName()) }
+func (h *Handler) sherpaBinaryPath() string {
+	return filepath.Join(h.asrBinDir(), sherpaBinaryName())
+}
 
 // sherpaArchive returns the release asset for the current platform.
 func sherpaArchive() (url, dirPrefix string, ok bool) {
@@ -238,12 +250,12 @@ func (h *Handler) handleLocalASRStatus(w http.ResponseWriter, r *http.Request) {
 
 	cfg, _ := config.LoadConfig(h.configPath)
 	installed := false
-	if _, err := os.Stat(sherpaBinaryPath()); err == nil {
+	if _, err := os.Stat(h.sherpaBinaryPath()); err == nil {
 		installed = true
 	}
 
 	downloaded := []string{}
-	if entries, err := os.ReadDir(asrModelsDir()); err == nil {
+	if entries, err := os.ReadDir(h.asrModelsDir()); err == nil {
 		for _, e := range entries {
 			if e.IsDir() {
 				downloaded = append(downloaded, e.Name())
@@ -260,8 +272,8 @@ func (h *Handler) handleLocalASRStatus(w http.ResponseWriter, r *http.Request) {
 	resp := map[string]any{
 		"platform_supported": true,
 		"installed":          installed,
-		"binary_path":        sherpaBinaryPath(),
-		"models_dir":         asrModelsDir(),
+		"binary_path":        h.sherpaBinaryPath(),
+		"models_dir":         h.asrModelsDir(),
 		"downloaded":         downloaded,
 	}
 	if _, _, ok := sherpaArchive(); !ok {
@@ -296,7 +308,7 @@ func (h *Handler) handleLocalASRModels(w http.ResponseWriter, r *http.Request) {
 
 	out := make([]item, 0, len(asrModels))
 	for _, m := range asrModels {
-		dir := filepath.Join(asrModelsDir(), m.DirName)
+		dir := filepath.Join(h.asrModelsDir(), m.DirName)
 		_, err := os.Stat(dir)
 		out = append(out, item{
 			asrModelSpec: m,
@@ -447,12 +459,12 @@ func (h *Handler) handleLocalASREnable(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unknown model id", http.StatusBadRequest)
 		return
 	}
-	modelDir := filepath.Join(asrModelsDir(), spec.DirName)
+	modelDir := filepath.Join(h.asrModelsDir(), spec.DirName)
 	if _, err := os.Stat(modelDir); err != nil {
 		http.Error(w, "model not downloaded yet", http.StatusBadRequest)
 		return
 	}
-	if _, err := os.Stat(sherpaBinaryPath()); err != nil {
+	if _, err := os.Stat(h.sherpaBinaryPath()); err != nil {
 		http.Error(w, "sherpa-onnx not installed yet", http.StatusBadRequest)
 		return
 	}
@@ -460,7 +472,7 @@ func (h *Handler) handleLocalASREnable(w http.ResponseWriter, r *http.Request) {
 	cfg.Voice.ASRSource = "local"
 	cfg.Voice.LocalASR = &config.LocalASRConfig{
 		Enabled:    true,
-		BinaryPath: sherpaBinaryPath(),
+		BinaryPath: h.sherpaBinaryPath(),
 		ModelDir:   modelDir,
 		ModelID:    spec.ID,
 		ModelType:  spec.ModelType,
@@ -529,8 +541,8 @@ func (h *Handler) handleLocalASRTest(w http.ResponseWriter, r *http.Request) {
 		if spec, ok := asrModelByID(reqModel); ok {
 			localCfg = &config.LocalASRConfig{
 				Enabled:    true,
-				BinaryPath: sherpaBinaryPath(),
-				ModelDir:   filepath.Join(asrModelsDir(), spec.DirName),
+				BinaryPath: h.sherpaBinaryPath(),
+				ModelDir:   filepath.Join(h.asrModelsDir(), spec.DirName),
 				ModelType:  spec.ModelType,
 			}
 		}
@@ -574,13 +586,13 @@ func (h *Handler) handleLocalASRUninstall(w http.ResponseWriter, r *http.Request
 	_ = json.NewDecoder(r.Body).Decode(&req)
 
 	if req.All {
-		if err := os.RemoveAll(asrRoot()); err != nil {
+		if err := os.RemoveAll(h.asrRoot()); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 	} else if req.ModelID != "" {
 		if spec, ok := asrModelByID(req.ModelID); ok {
-			_ = os.RemoveAll(filepath.Join(asrModelsDir(), spec.DirName))
+			_ = os.RemoveAll(filepath.Join(h.asrModelsDir(), spec.DirName))
 		}
 	}
 	json.NewEncoder(w).Encode(map[string]any{"ok": true})
@@ -591,7 +603,7 @@ func (h *Handler) handleLocalASRUninstall(w http.ResponseWriter, r *http.Request
 // ---------------------------------------------------------------------------
 
 func (h *Handler) installSherpaBinary(url, dirPrefix string, st *asrTaskState) error {
-	if err := os.MkdirAll(asrBinDir(), 0o755); err != nil {
+	if err := os.MkdirAll(h.asrBinDir(), 0o755); err != nil {
 		return fmt.Errorf("create bin dir: %w", err)
 	}
 
@@ -607,17 +619,17 @@ func (h *Handler) installSherpaBinary(url, dirPrefix string, st *asrTaskState) e
 	}
 
 	st.set("extracting", "解压中…", 0)
-	if err := extractTarBz2(archivePath, dirPrefix, asrBinDir(), true); err != nil {
+	if err := extractTarBz2(archivePath, dirPrefix, h.asrBinDir(), true); err != nil {
 		return err
 	}
-	return ensureExecutable(sherpaBinaryPath())
+	return ensureExecutable(h.sherpaBinaryPath())
 }
 
 func (h *Handler) installModel(spec asrModelSpec, st *asrTaskState) error {
-	if err := os.MkdirAll(asrModelsDir(), 0o755); err != nil {
+	if err := os.MkdirAll(h.asrModelsDir(), 0o755); err != nil {
 		return fmt.Errorf("create models dir: %w", err)
 	}
-	target := filepath.Join(asrModelsDir(), spec.DirName)
+	target := filepath.Join(h.asrModelsDir(), spec.DirName)
 	if _, err := os.Stat(target); err == nil {
 		return nil // already downloaded
 	}

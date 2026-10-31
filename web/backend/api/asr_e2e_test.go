@@ -52,7 +52,7 @@ func TestLocalASR_EndToEnd(t *testing.T) {
 	if !waitStage(t, srv.URL, "binary") {
 		t.Fatal("binary install did not finish")
 	}
-	if _, err := os.Stat(sherpaBinaryPath()); err != nil {
+	if _, err := os.Stat(h.sherpaBinaryPath()); err != nil {
 		t.Fatalf("binary still missing after install: %v", err)
 	}
 

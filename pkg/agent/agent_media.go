@@ -157,7 +157,12 @@ func resolveMediaRefs(
 			if m.Role == "user" && idx >= currentTurnStart {
 				isSticker := meta.Source == media.SourceTelegramSticker
 				switch {
-				case strings.HasPrefix(mime, "audio/"), strings.HasPrefix(mime, "video/"):
+				case strings.HasPrefix(mime, "audio/"):
+					// Audio is NOT inlined. Most text models reject audio parts
+					// with HTTP 400 and the whole turn fails before the model can
+					// respond. Instead the path tag (already added above) lets the
+					// model call transcribe_audio when it wants the text.
+				case strings.HasPrefix(mime, "video/"):
 					dataURL := encodeMediaToDataURL(localPath, mime, info, maxSize)
 					if dataURL != "" {
 						resolved = append(resolved, dataURL)
