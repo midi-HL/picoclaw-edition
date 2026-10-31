@@ -599,6 +599,31 @@ In **Config → Speech-to-text**, pick the source:
 Everything is optional and `omitempty`: configs without these keys behave
 exactly as before.
 
+### Voice messages: how the model sees them
+
+Two markers are used and they mean **different things** — mixing them up was a
+real bug that made the model call the transcriber on already-transcribed text:
+
+| Marker | Meaning | Model action |
+|---|---|---|
+| `[voice:/abs/path]` / `[audio:/abs/path]` | Audio file, **not** transcribed yet | Call `transcribe_audio` |
+| `[语音转写] text` | Speech **already** transcribed; `text` is what was said | Use it directly |
+
+Raw audio is **never** inlined into the request: text-only models reject audio
+parts with HTTP 400 and the whole turn fails. Instead the model decides whether
+to call the `transcribe_audio` tool, which reports a precise reason on failure
+(not enabled / cloud API error / local model misconfigured).
+
+### Measured performance
+
+On a phone-class ARM64 SoC (Termux/Debian, 2 threads, paraformer-zh-small):
+
+| Metric | Value |
+|---|---|
+| 5.6 s audio → text | **0.99 s** (RTF ≈ 0.18) |
+| Peak RSS | **~179 MB** |
+| Cold start (incl. model load) | ~10 s |
+
 ### Notes
 
 - Only **non-streaming** is used. PicoClaw transcribes a complete audio file
