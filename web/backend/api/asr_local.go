@@ -219,8 +219,9 @@ func sherpaArchive() (url, dirPrefix string, ok bool) {
 		return fmt.Sprintf("https://github.com/k2-fsa/sherpa-onnx/releases/download/%s/sherpa-onnx-%s-linux-x64-shared.tar.bz2", sherpaRelease, sherpaRelease),
 			fmt.Sprintf("sherpa-onnx-%s-linux-x64-shared", sherpaRelease), true
 	case "linux/arm64":
-		return fmt.Sprintf("https://github.com/k2-fsa/sherpa-onnx/releases/download/%s/sherpa-onnx-%s-linux-aarch64-shared.tar.bz2", sherpaRelease, sherpaRelease),
-			fmt.Sprintf("sherpa-onnx-%s-linux-aarch64-shared", sherpaRelease), true
+		// NOTE: the asset is "-shared-cpu" (not "-shared"); the latter 404s.
+		return fmt.Sprintf("https://github.com/k2-fsa/sherpa-onnx/releases/download/%s/sherpa-onnx-%s-linux-aarch64-shared-cpu.tar.bz2", sherpaRelease, sherpaRelease),
+			fmt.Sprintf("sherpa-onnx-%s-linux-aarch64-shared-cpu", sherpaRelease), true
 	}
 	return "", "", false
 }
