@@ -21,6 +21,7 @@
 - [11. 群聊发送者归属与媒体回退](#11-群聊发送者归属与媒体回退)
 - [12. API 密钥/服务商轮询](#12-api-密钥服务商轮询)
 - [13. Web 对话上传文件](#13-web-对话上传文件)
+- [14. 本地语音转文字（sherpa-onnx）](#14-本地语音转文字sherpa-onnx)
 - [已知限制](#已知限制)
 
 ---
@@ -462,6 +463,74 @@ Web 对话输入框现在支持任意文件（不再仅限图片）：
 - 文件名做净化（不含分隔符、不含 `..`）；单文件 10 MB 上限。
 - 允许「只有文件、没有文字」的消息，不会被判为空内容拒绝。
 - 不带 `files` 字段的旧 payload 行为完全不变。
+
+---
+
+## 14. 本地语音转文字（sherpa-onnx）
+
+云端 ASR 需要 API Key 和一次网络往返。本 Fork 增加了基于
+[sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) 的**离线**方案。
+
+### 为什么用外部进程
+
+sherpa-onnx 是 C++ 库，链进来就必须开 CGO，会破坏全部 17 个发布目标的
+纯 Go 交叉编译。因此 PicoClaw **下载其预编译的 `sherpa-onnx-offline` 可执行文件**
+并以子进程方式调用，主程序保持纯 Go。
+
+### 入口
+
+侧边栏 → **模型 → 本地语音转文字**。三步：
+
+1. **安装运行时** —— 下载对应平台包（约 21 MB）到 `<picoclaw-home>/asr/bin/`。
+   Windows 下 DLL 会与 exe 放在同一目录（Windows 的查找规则）；Linux 下同样
+   同目录，并通过 `LD_LIBRARY_PATH` 解析。
+2. **下载模型** —— 不会自动下载。推荐项会高亮，但需要你点击下载。
+3. **启用** —— 写入 `voice.asr_source = "local"` 与模型配置。
+
+### 模型
+
+| 模型 | 大小 | 速度 | 准确度 | 内存 | 支持语言 |
+|---|---|---|---|---|---|
+| **paraformer-zh-small**（推荐） | ~50 MB | 很快（RTF 0.1–0.3） | 中文中等偏上、英文一般 | ~150 MB | 中、英 |
+| **streaming-zipformer-zh-14M** | ~30 MB | 极快 | 中文中等、英文基本不行 | ~100 MB | 中文 |
+| **SenseVoice Small** | ~241 MB | 快 | 高 | ~350 MB | 中、英、日、韩、粤 |
+
+### 平台支持
+
+只提供有官方预编译包的平台，其余平台页面会提示"不支持"。目前：
+Windows x64、Linux x64、Linux arm64。
+
+### 配置
+
+**配置 → 语音转文字**里选择来源：
+
+- **云端模型** —— 原有行为，完全不变；旧设置收进「高级」折叠区，老配置照常工作。
+- **本地 sherpa-onnx** —— 点击链接跳转到 ASR 页面。
+
+```json
+{
+  "voice": {
+    "asr_source": "local",
+    "local_asr": {
+      "enabled": true,
+      "binary_path": "…/asr/bin/sherpa-onnx-offline.exe",
+      "model_dir": "…/asr/models/sherpa-onnx-paraformer-zh-small-2024-03-09",
+      "model_id": "paraformer-zh-small",
+      "model_type": "paraformer",
+      "threads": 0
+    }
+  }
+}
+```
+
+所有字段可选且 `omitempty`：没有这些键的配置行为与以前完全一致。
+
+### 说明
+
+- 只用**非流式**。PicoClaw 总是先把整段音频转写完再交给模型，流式没有收益。
+- 每次进程启动要加载模型（约 10 秒），这是命令行模式固有的开销；语音消息不频繁，
+  可以接受。
+- 下载支持 `HTTP_PROXY` / `HTTPS_PROXY`，代理环境可用。
 
 ---
 

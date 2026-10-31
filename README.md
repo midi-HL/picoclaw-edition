@@ -21,6 +21,7 @@ This is the primary documentation for this fork (`picoclaw-edition`). It describ
 - [11. Group Chat Attribution & Media Fallback](#11-group-chat-attribution--media-fallback)
 - [12. API Key & Provider Rotation](#12-api-key--provider-rotation)
 - [13. Web Chat File Upload](#13-web-chat-file-upload)
+- [14. Local Speech-to-Text (sherpa-onnx)](#14-local-speech-to-text-sherpa-onnx)
 - [Known Limitations](#known-limitations)
 
 ---
@@ -531,6 +532,80 @@ files outside the workspace would be unreadable by `read_file`. Writing into
 **Backward compatibility:** payloads without a `files` key behave exactly as
 before; a message with neither text, inline media, nor files is still rejected as
 `empty_content`.
+
+---
+
+## 14. Local Speech-to-Text (sherpa-onnx)
+
+Cloud ASR needs an API key and a network round-trip. This fork adds an
+**offline** option driven by [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx).
+
+### Why an external process
+
+sherpa-onnx is a C++ library. Linking it would force CGO, which would break the
+CGO-free cross-compilation of all 17 release targets. Instead PicoClaw
+**downloads the prebuilt `sherpa-onnx-offline` executable** and runs it as a
+child process. The main binary stays pure Go.
+
+### Where to find it
+
+Sidebar → **Models → Local ASR**. Three steps:
+
+1. **Install runtime** — downloads the platform build (~21 MB) into
+   `<picoclaw-home>/asr/bin/`. On Windows the DLLs are extracted next to the
+   executable (that is where Windows looks); on Linux they go in the same
+   directory and are resolved via `LD_LIBRARY_PATH`.
+2. **Download a model** — nothing is downloaded automatically. The recommended
+   default is highlighted but you must click download.
+3. **Enable** — writes `voice.asr_source = "local"` and the model settings.
+
+### Models
+
+| Model | Size | Speed | Accuracy | Memory | Languages |
+|---|---|---|---|---|---|
+| **paraformer-zh-small** (recommended) | ~50 MB | very fast (RTF 0.1–0.3) | Chinese above average, English fair | ~150 MB | Chinese, English |
+| **streaming-zipformer-zh-14M** | ~30 MB | fastest | Chinese average, English poor | ~100 MB | Chinese |
+| **SenseVoice Small** | ~241 MB | fast | high | ~350 MB | zh, en, ja, ko, yue |
+
+### Platform support
+
+Only platforms with an official prebuilt release are offered; the page reports
+"unsupported" otherwise. Currently: Windows x64, Linux x64, Linux arm64.
+
+### Configuration
+
+In **Config → Speech-to-text**, pick the source:
+
+- **Cloud model** — the previous behaviour, unchanged; existing settings are
+  folded into an "advanced" block so old configs keep working.
+- **Local sherpa-onnx** — a link jumps to the ASR page.
+
+```json
+{
+  "voice": {
+    "asr_source": "local",
+    "local_asr": {
+      "enabled": true,
+      "binary_path": "…/asr/bin/sherpa-onnx-offline.exe",
+      "model_dir": "…/asr/models/sherpa-onnx-paraformer-zh-small-2024-03-09",
+      "model_id": "paraformer-zh-small",
+      "model_type": "paraformer",
+      "threads": 0
+    }
+  }
+}
+```
+
+Everything is optional and `omitempty`: configs without these keys behave
+exactly as before.
+
+### Notes
+
+- Only **non-streaming** is used. PicoClaw transcribes a complete audio file
+  before calling the model, so streaming would add complexity for no benefit.
+- Model loading costs ~10 s per process start; that is inherent to the CLI mode
+  and acceptable because voice messages are infrequent.
+- Downloads honour `HTTP_PROXY` / `HTTPS_PROXY`, so proxied environments work.
 
 ## Known Limitations
 

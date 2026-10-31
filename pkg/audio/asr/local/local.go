@@ -96,6 +96,18 @@ func (t *Transcriber) Transcribe(ctx context.Context, audioFilePath string) (*as
 	cmd := exec.CommandContext(ctx, t.binaryPath, args...)
 	cmd.Dir = t.modelDir
 
+	// Linux/macOS resolve shared libraries via the loader. sherpa-onnx ships
+	// its .so files next to the binary, so point LD_LIBRARY_PATH there.
+	if runtime.GOOS != "windows" {
+		binDir := filepath.Dir(t.binaryPath)
+		existing := os.Getenv("LD_LIBRARY_PATH")
+		lp := binDir
+		if existing != "" {
+			lp = binDir + string(os.PathListSeparator) + existing
+		}
+		cmd.Env = append(os.Environ(), "LD_LIBRARY_PATH="+lp)
+	}
+
 	// sherpa-onnx writes model loading info to stderr and the JSON result to
 	// stdout. Keep them separate so a noisy stderr cannot corrupt parsing.
 	var stdout strings.Builder

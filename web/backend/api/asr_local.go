@@ -606,7 +606,10 @@ func (h *Handler) installSherpaBinary(url, dirPrefix string, st *asrTaskState) e
 	}
 
 	st.set("extracting", "解压中…", 0)
-	return extractTarBz2(archivePath, dirPrefix, asrBinDir(), true)
+	if err := extractTarBz2(archivePath, dirPrefix, asrBinDir(), true); err != nil {
+		return err
+	}
+	return ensureExecutable(sherpaBinaryPath())
 }
 
 func (h *Handler) installModel(spec asrModelSpec, st *asrTaskState) error {
@@ -783,6 +786,19 @@ func extractTarBz2(archivePath, dirPrefix, destDir string, binOnly bool) error {
 			return err
 		}
 		out.Close()
+	}
+	return nil
+}
+
+// ensureExecutable marks the binary runnable on non-Windows platforms. The
+// archive does not always preserve the mode bit, and without it exec fails with
+// "permission denied".
+func ensureExecutable(path string) error {
+	if runtime.GOOS == "windows" {
+		return nil
+	}
+	if err := os.Chmod(path, 0o755); err != nil {
+		return fmt.Errorf("chmod %s: %w", path, err)
 	}
 	return nil
 }
