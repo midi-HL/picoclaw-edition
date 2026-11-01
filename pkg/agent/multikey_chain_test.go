@@ -144,3 +144,22 @@ func TestMultiKeyRotation_FindsFallbacksAmongDuplicateNames(t *testing.T) {
 		t.Fatal("expected fallbacks from the duplicate-name entry that has multiple keys")
 	}
 }
+
+// An unresolved "<model>__key_N" entry must be skipped, not sent to the
+// provider as a raw model id (which yields "Invalid model: ...__key_1").
+func TestResolveModelCandidates_SkipsUnresolvedKeyEntries(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.ModelList = []*config.ModelConfig{{
+		ModelName: "m", Provider: "openai", Model: "real-model",
+		APIBase: "https://e.invalid/v1", Enabled: true,
+	}}
+
+	cands := resolveModelCandidates(cfg, "openai", "m", []string{"m__key_1", "m__key_2"})
+
+	if len(cands) != 1 {
+		t.Fatalf("expected only the primary candidate, got %d: %+v", len(cands), cands)
+	}
+	if cands[0].Model != "real-model" {
+		t.Fatalf("unexpected model %q", cands[0].Model)
+	}
+}

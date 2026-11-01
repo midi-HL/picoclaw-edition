@@ -378,3 +378,58 @@ func TestMergeAPIKeys(t *testing.T) {
 		})
 	}
 }
+
+// A config polluted by an earlier build must self-heal on load: virtual
+// "__key_N" entries are regenerated from api_keys, never carried over from disk.
+// Regression: the list used to grow on every load (4 duplicates after two
+// loads), resolving to "Invalid model: <name>__key_1" at the provider.
+func TestExpandMultiKey_DropsStaleVirtualFallbacks(t *testing.T) {
+	models := []*ModelConfig{{
+		ModelName:   "m",
+		Model:       "x",
+		APIKeys:     SimpleSecureStrings("k1", "k2"),
+		KeyRotation: true,
+		// Pollution left behind by a previous build:
+		Fallbacks: []string{"m__key_1", "m__key_1", "other-model"},
+	}}
+
+	out := expandMultiKeyModels(models)
+	var primary *ModelConfig
+	for _, m := range out {
+		if m.ModelName == "m" {
+			primary = m
+			break
+		}
+	}
+	if primary == nil {
+		t.Fatal("primary entry not found")
+	}
+	// Exactly one virtual entry (k2), plus the user's real fallback.
+	if len(primary.Fallbacks) != 2 {
+		t.Fatalf("expected 2 fallbacks (1 generated + 1 user), got %v", primary.Fallbacks)
+	}
+	if primary.Fallbacks[0] != "m__key_1" {
+		t.Fatalf("expected generated entry first, got %v", primary.Fallbacks)
+	}
+	if primary.Fallbacks[1] != "other-model" {
+		t.Fatalf("user fallback must survive, got %v", primary.Fallbacks)
+	}
+}
+
+// Loading twice must not accumulate virtual entries.
+func TestExpandMultiKey_IsIdempotent(t *testing.T) {
+	models := []*ModelConfig{{
+		ModelName: "m", Model: "x",
+		APIKeys: SimpleSecureStrings("k1", "k2", "k3"),
+	}}
+
+	first := expandMultiKeyModels(models)
+	// Simulate the loader feeding the persisted primary back in.
+	reloaded := []*ModelConfig{first[0]}
+	second := expandMultiKeyModels(reloaded)
+
+	if len(first[0].Fallbacks) != len(second[0].Fallbacks) {
+		t.Fatalf("fallbacks grew on reload: %v -> %v",
+			first[0].Fallbacks, second[0].Fallbacks)
+	}
+}

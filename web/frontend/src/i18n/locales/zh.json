@@ -1100,6 +1100,12 @@
     "testUpload": "上传音频测试",
     "testing": "转写中…",
     "testDone": "转写完成",
-    "loadFailed": "加载本地 ASR 状态失败"
+    "loadFailed": "加载本地 ASR 状态失败",
+    "removeRuntime": "卸载运行时",
+    "runtimeRemoved": "运行时已卸载",
+    "forceDeleteConfirm": "仍有实例在使用。确定要强制删除吗？（这些实例的语音功能会失效）",
+    "globalInstallHint": "安装在全局目录，本机所有 PicoClaw 实例共用一份。",
+    "localInstallHint": "当前使用的是本实例独立目录（旧版布局）。",
+    "otherInstances": "另有 {{count}} 个实例正在共用此安装。"
   }
 }

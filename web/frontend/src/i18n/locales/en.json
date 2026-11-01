@@ -1100,6 +1100,12 @@
     "testUpload": "Upload audio to test",
     "testing": "Transcribing…",
     "testDone": "Transcription done",
-    "loadFailed": "Failed to load local ASR status"
+    "loadFailed": "Failed to load local ASR status",
+    "removeRuntime": "Uninstall runtime",
+    "runtimeRemoved": "Runtime uninstalled",
+    "forceDeleteConfirm": "Other instances are still using it. Delete anyway? (their speech-to-text will stop working)",
+    "globalInstallHint": "Installed in the shared directory, used by every PicoClaw instance on this machine.",
+    "localInstallHint": "Using this instance's private directory (legacy layout).",
+    "otherInstances": "{{count}} other instance(s) share this install."
   }
 }

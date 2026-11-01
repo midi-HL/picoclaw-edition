@@ -1735,18 +1735,34 @@ func SaveConfig(path string, cfg *Config) error {
 	if cfg.Version < CurrentVersion {
 		cfg.Version = CurrentVersion
 	}
-	// Filter out virtual models before serializing to config file
+	// Filter out virtual models before serializing to config file, and strip
+	// generated "__key_N" names from each real entry's fallback list.
+	//
+	// Those entries are rebuilt from api_keys on every load. Persisting them
+	// makes the list grow on each save/load cycle and eventually resolves to a
+	// model id the provider rejects ("Invalid model: ...__key_1"). The in-memory
+	// config keeps them (rotation needs them); only the on-disk form is scrubbed.
 	nonVirtualModels := make([]*ModelConfig, 0, len(cfg.ModelList))
+	restoreFallbacks := make([]func(), 0, len(cfg.ModelList))
 	for _, m := range cfg.ModelList {
-		if !m.isVirtual {
-			nonVirtualModels = append(nonVirtualModels, m)
+		if m.isVirtual {
+			continue
 		}
+		if cleaned := sanitizeFallbacks(m.ModelName, m.Fallbacks); len(cleaned) != len(m.Fallbacks) {
+			original := m.Fallbacks
+			m.Fallbacks = cleaned
+			restoreFallbacks = append(restoreFallbacks, func() { m.Fallbacks = original })
+		}
+		nonVirtualModels = append(nonVirtualModels, m)
 	}
 	// Temporarily replace ModelList with filtered version for serialization
 	originalModelList := cfg.ModelList
 	defer func() {
-		// Restore original ModelList after serialization
+		// Restore original ModelList and fallback lists after serialization
 		cfg.ModelList = originalModelList
+		for _, restore := range restoreFallbacks {
+			restore()
+		}
 	}()
 	cfg.ModelList = nonVirtualModels
 
@@ -1845,8 +1861,18 @@ func expandMultiKeyModels(models []*ModelConfig) []*ModelConfig {
 	for _, m := range models {
 		keys := m.APIKeys.Values()
 
-		// Single key or no keys: keep as-is
+		// Single key or no keys: keep the entry, but still scrub stale virtual
+		// fallbacks. A config written by an older build can reference
+		// "<name>__key_N" entries that no longer exist (there is only one key),
+		// and leaving them in makes resolution fall through to a raw model id
+		// the provider rejects with "Invalid model".
 		if len(keys) <= 1 {
+			// No extra keys to generate, but a polluted config may still list
+			// stale "__key_N" names; drop those so resolution does not send them
+			// to the provider as raw model ids.
+			if cleaned := sanitizeFallbacks(m.ModelName, m.Fallbacks); len(cleaned) != len(m.Fallbacks) {
+				m.Fallbacks = cleaned
+			}
 			expanded = append(expanded, m)
 			continue
 		}
@@ -1907,22 +1933,64 @@ func expandMultiKeyModels(models []*ModelConfig) []*ModelConfig {
 			ExtraBody:           m.ExtraBody,
 			CustomHeaders:       m.CustomHeaders,
 			UserAgent:           m.UserAgent,
-			APIKeys:             SimpleSecureStrings(keys[0]),
+			// Keep the FULL key list on the primary entry.
+			//
+			// The virtual "__key_N" entries exist only in memory to give the
+			// rotation engine distinct candidates; they are stripped on save. If
+			// the primary kept just keys[0], the remaining keys would be lost the
+			// moment the config is written, and a reload could no longer rebuild
+			// them — silently disabling rotation.
+			APIKeys:             SimpleSecureStrings(keys...),
 			KeyRotation:         m.KeyRotation,
 			ProviderRotation:    m.ProviderRotation,
 		}
 
-		// Prepend new fallbacks to existing ones
-		if len(fallbackNames) > 0 {
-			primaryEntry.Fallbacks = append(fallbackNames, m.Fallbacks...)
-		} else if len(m.Fallbacks) > 0 {
-			primaryEntry.Fallbacks = m.Fallbacks
-		}
+		// Prepend the generated key entries to the user's own fallbacks.
+		//
+		// The generated "__key_N" names MUST stay in memory — resolveAgentFallbacks
+		// reads them to build the rotation candidates. They are stripped again by
+		// SaveConfig so they never reach disk (that was the source of unbounded
+		// growth and the "Invalid model: ...__key_1" failure).
+		userFallbacks := sanitizeFallbacks(originalName, m.Fallbacks)
+		merged := make([]string, 0, len(fallbackNames)+len(userFallbacks))
+		merged = append(merged, fallbackNames...)
+		merged = append(merged, userFallbacks...)
+		primaryEntry.Fallbacks = merged
 
 		expanded = append(expanded, primaryEntry)
 	}
 
 	return expanded
+}
+
+// sanitizeFallbacks removes virtual multi-key entries ("<name>__key_N") and
+// duplicates from a fallback list, preserving order.
+//
+// These names are generated at load time by expandMultiKeyModels and must never
+// be persisted: doing so makes the list grow on every load and eventually
+// resolves to a model id the provider does not know.
+func sanitizeFallbacks(primaryName string, fallbacks []string) []string {
+	if len(fallbacks) == 0 {
+		return nil
+	}
+	prefix := primaryName + "__key_"
+	seen := make(map[string]struct{}, len(fallbacks))
+	out := make([]string, 0, len(fallbacks))
+	for _, fb := range fallbacks {
+		name := strings.TrimSpace(fb)
+		if name == "" {
+			continue
+		}
+		if strings.HasPrefix(name, prefix) {
+			continue // virtual key entry, regenerated on every load
+		}
+		if _, dup := seen[name]; dup {
+			continue
+		}
+		seen[name] = struct{}{}
+		out = append(out, name)
+	}
+	return out
 }
 
 func (t *ToolsConfig) IsToolEnabled(name string) bool {

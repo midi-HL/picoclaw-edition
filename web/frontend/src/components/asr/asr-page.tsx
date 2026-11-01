@@ -41,6 +41,9 @@ interface ASRStatus {
   downloaded: string[]
   active?: boolean
   asr_source?: string
+  global_dir?: string
+  is_global?: boolean
+  other_instances?: { config_path: string; pid: number }[]
   config?: {
     enabled: boolean
     model_id?: string
@@ -184,6 +187,32 @@ export function ASRPage() {
     void refresh()
   }
 
+  const removeRuntime = async (force = false) => {
+    const res = await fetch("/api/asr/local/uninstall", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ runtime: true, force }),
+    })
+    if (!res.ok) {
+      toast.error(await res.text())
+      return
+    }
+    const data = await res.json()
+    // The install is machine-wide; the server reports other live instances.
+    if (data.in_use && !force) {
+      const list = (data.instances ?? [])
+        .map((i: { config_path: string }) => i.config_path)
+        .join("\n")
+      const ok = window.confirm(
+        `${data.message}\n\n${list}\n\n${t("asr.forceDeleteConfirm")}`,
+      )
+      if (ok) await removeRuntime(true)
+      return
+    }
+    toast.success(t("asr.runtimeRemoved"))
+    void refresh()
+  }
+
   const runTest = async (file: File) => {
     setTesting(true)
     setTestText("")
@@ -266,18 +295,44 @@ export function ASRPage() {
                     {status.binary_path}
                   </p>
 
-                  {!status.installed && (
-                    <Button
-                      onClick={() => void installBinary()}
-                      disabled={
-                        installProgress.stage === "downloading" ||
-                        installProgress.stage === "extracting"
-                      }
-                    >
-                      <IconDownload className="mr-1.5 size-4" />
-                      {t("asr.installRuntime")}
-                    </Button>
-                  )}
+                  <p className="text-muted-foreground text-xs">
+                    {status.is_global
+                      ? t("asr.globalInstallHint")
+                      : t("asr.localInstallHint")}
+                  </p>
+
+                  <div className="flex flex-wrap gap-2">
+                    {!status.installed && (
+                      <Button
+                        onClick={() => void installBinary()}
+                        disabled={
+                          installProgress.stage === "downloading" ||
+                          installProgress.stage === "extracting"
+                        }
+                      >
+                        <IconDownload className="mr-1.5 size-4" />
+                        {t("asr.installRuntime")}
+                      </Button>
+                    )}
+                    {status.installed && (
+                      <Button
+                        variant="outline"
+                        onClick={() => void removeRuntime()}
+                      >
+                        <IconTrash className="mr-1.5 size-4" />
+                        {t("asr.removeRuntime")}
+                      </Button>
+                    )}
+                  </div>
+
+                  {status.other_instances &&
+                    status.other_instances.length > 0 && (
+                      <p className="text-muted-foreground text-xs">
+                        {t("asr.otherInstances", {
+                          count: status.other_instances.length,
+                        })}
+                      </p>
+                    )}
 
                   {installProgress.stage !== "idle" && (
                     <ProgressBlock progress={installProgress} />

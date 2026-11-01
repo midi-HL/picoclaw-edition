@@ -192,19 +192,50 @@ func (h *Handler) registerLocalASRRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/asr/local/uninstall", h.handleLocalASRUninstall)
 }
 
-// asrRoot is the ASR data directory.
+// GlobalASRDirEnv lets the user relocate the shared ASR directory.
+const GlobalASRDirEnv = "PICOCLAW_ASR_DIR"
+
+// GlobalASRDir returns the machine-wide ASR directory shared by every PicoClaw
+// instance on this host.
 //
-// It is derived from the directory holding the config file this handler was
-// constructed with — NOT from config.GetHome(). The launcher may be started
-// with an explicit config path that has nothing to do with $PICOCLAW_HOME, and
-// in that case GetHome() points somewhere else entirely, making the UI report
-// "not installed" for files that are actually present.
-func (h *Handler) asrRoot() string {
-	dir := filepath.Dir(h.configPath)
-	if dir == "" || dir == "." {
+// Why shared: sherpa-onnx plus a model is 150-250 MB. Users running several
+// instances (different configs / ports) should install it once, not N times.
+//
+// Resolution order:
+//  1. $PICOCLAW_ASR_DIR (explicit override)
+//  2. ~/.picoclaw-asr   (default; sits next to ~/.picoclaw)
+func GlobalASRDir() string {
+	if dir := strings.TrimSpace(os.Getenv(GlobalASRDirEnv)); dir != "" {
+		return dir
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		// Last resort: keep it beside the config so nothing breaks.
 		return filepath.Join(config.GetHome(), "asr")
 	}
-	return filepath.Join(dir, "asr")
+	return filepath.Join(home, ".picoclaw-asr")
+}
+
+// asrRoot returns the directory this instance reads/writes for ASR data.
+//
+// It prefers the global shared directory so a single install serves every
+// instance. The per-config directory (<config-dir>/asr) is still honoured as a
+// fallback when it already contains an install — that keeps existing
+// deployments working without forcing a migration.
+func (h *Handler) asrRoot() string {
+	global := GlobalASRDir()
+	if _, err := os.Stat(filepath.Join(global, "bin")); err == nil {
+		return global
+	}
+	// Legacy per-instance location, only if it already has content.
+	dir := filepath.Dir(h.configPath)
+	if dir != "" && dir != "." {
+		legacy := filepath.Join(dir, "asr")
+		if _, err := os.Stat(filepath.Join(legacy, "bin")); err == nil {
+			return legacy
+		}
+	}
+	return global
 }
 
 func (h *Handler) asrBinDir() string    { return filepath.Join(h.asrRoot(), "bin") }
@@ -275,6 +306,10 @@ func (h *Handler) handleLocalASRStatus(w http.ResponseWriter, r *http.Request) {
 		"binary_path":        h.sherpaBinaryPath(),
 		"models_dir":         h.asrModelsDir(),
 		"downloaded":         downloaded,
+		// The install is machine-wide; surface where it lives and who else uses it.
+		"global_dir":    GlobalASRDir(),
+		"is_global":     h.asrRoot() == GlobalASRDir(),
+		"other_instances": h.liveInstances(),
 	}
 	if _, _, ok := sherpaArchive(); !ok {
 		resp["platform_supported"] = false
@@ -483,6 +518,9 @@ func (h *Handler) handleLocalASREnable(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "save config: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	// Record this instance as a user of the shared install so an uninstall from
+	// another instance can warn before deleting.
+	h.registerInstance()
 	json.NewEncoder(w).Encode(map[string]any{"ok": true, "enabled": true, "model_id": spec.ID})
 }
 
@@ -574,6 +612,98 @@ func (h *Handler) handleLocalASRTest(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// ---------------------------------------------------------------------------
+// Instance registry
+//
+// The ASR install is machine-wide, so an uninstall can break other running
+// instances. Every instance that points at the shared install records itself
+// here (config path + pid). Uninstall checks liveness before deleting.
+// ---------------------------------------------------------------------------
+
+const asrRegistryFile = "instances.json"
+
+type asrInstanceRecord struct {
+	ConfigPath string `json:"config_path"`
+	PID        int    `json:"pid"`
+	UpdatedAt  string `json:"updated_at"`
+}
+
+func (h *Handler) registryPath() string {
+	return filepath.Join(GlobalASRDir(), asrRegistryFile)
+}
+
+// registerInstance records this instance as a user of the shared install.
+func (h *Handler) registerInstance() {
+	path := h.registryPath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return
+	}
+	records := h.readRegistry()
+	now := time.Now().Format(time.RFC3339)
+
+	cfgAbs, _ := filepath.Abs(h.configPath)
+	found := false
+	for i := range records {
+		if records[i].ConfigPath == cfgAbs {
+			records[i].PID = os.Getpid()
+			records[i].UpdatedAt = now
+			found = true
+			break
+		}
+	}
+	if !found {
+		records = append(records, asrInstanceRecord{
+			ConfigPath: cfgAbs, PID: os.Getpid(), UpdatedAt: now,
+		})
+	}
+
+	data, err := json.MarshalIndent(records, "", "  ")
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(path, data, 0o644)
+}
+
+func (h *Handler) readRegistry() []asrInstanceRecord {
+	data, err := os.ReadFile(h.registryPath())
+	if err != nil {
+		return nil
+	}
+	var records []asrInstanceRecord
+	if json.Unmarshal(data, &records) != nil {
+		return nil
+	}
+	return records
+}
+
+// liveInstances returns the records whose process is still alive, excluding the
+// caller itself. Dead entries are pruned from the file.
+func (h *Handler) liveInstances() []asrInstanceRecord {
+	records := h.readRegistry()
+	self, _ := filepath.Abs(h.configPath)
+	live := make([]asrInstanceRecord, 0, len(records))
+	for _, rec := range records {
+		if rec.ConfigPath == self {
+			continue
+		}
+		if processAlive(rec.PID) {
+			live = append(live, rec)
+		}
+	}
+	// Persist the pruned list (plus ourselves).
+	kept := live
+	if self != "" {
+		kept = append(kept, asrInstanceRecord{
+			ConfigPath: self, PID: os.Getpid(),
+			UpdatedAt: time.Now().Format(time.RFC3339),
+		})
+	}
+	if data, err := json.MarshalIndent(kept, "", "  "); err == nil {
+		_ = os.WriteFile(h.registryPath(), data, 0o644)
+	}
+	return live
+}
+
 func (h *Handler) handleLocalASRUninstall(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -581,16 +711,40 @@ func (h *Handler) handleLocalASRUninstall(w http.ResponseWriter, r *http.Request
 	}
 	var req struct {
 		ModelID string `json:"model_id"`
-		All     bool   `json:"all"`
+		Runtime bool   `json:"runtime"`  // remove the sherpa-onnx binary
+		All     bool   `json:"all"`      // remove everything
+		Force   bool   `json:"force"`    // proceed even if other instances are alive
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
 
-	if req.All {
+	// The install is machine-wide: refuse to delete while other instances use it.
+	if !req.Force {
+		if live := h.liveInstances(); len(live) > 0 {
+			json.NewEncoder(w).Encode(map[string]any{
+				"ok":        false,
+				"in_use":    true,
+				"instances": live,
+				"message": fmt.Sprintf(
+					"%d other PicoClaw instance(s) are using this ASR install. "+
+						"Stop them first, or confirm to delete anyway.", len(live)),
+			})
+			return
+		}
+	}
+
+	switch {
+	case req.All:
 		if err := os.RemoveAll(h.asrRoot()); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-	} else if req.ModelID != "" {
+	case req.Runtime:
+		// Remove only the runtime binaries, keep downloaded models.
+		if err := os.RemoveAll(h.asrBinDir()); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	case req.ModelID != "":
 		if spec, ok := asrModelByID(req.ModelID); ok {
 			_ = os.RemoveAll(filepath.Join(h.asrModelsDir(), spec.DirName))
 		}

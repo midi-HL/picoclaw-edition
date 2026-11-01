@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/sipeed/picoclaw/pkg/config"
+	"github.com/sipeed/picoclaw/pkg/logger"
 	"github.com/sipeed/picoclaw/pkg/providers"
 )
 
@@ -240,6 +241,18 @@ func resolveModelCandidate(
 			}
 		}
 		return candidate, true
+	}
+
+	// A name shaped like "<model>__key_N" is a generated multi-key entry. If it
+	// did not resolve above, the key no longer exists (e.g. the config was
+	// reduced to a single api_key). Returning it as a raw model id would send
+	// "Invalid model: <name>__key_1" to the provider, so skip it instead and
+	// let the remaining candidates serve the request.
+	if strings.Contains(raw, "__key_") {
+		logger.WarnCF("agent", "Skipping unresolved multi-key fallback entry", map[string]any{
+			"entry": raw,
+		})
+		return providers.FallbackCandidate{}, false
 	}
 
 	ref := providers.ParseModelRef(raw, defaultProvider)
