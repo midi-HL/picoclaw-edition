@@ -73,8 +73,17 @@ export function ASRPage() {
     Record<string, ProgressState>
   >({})
   const [threads, setThreads] = useState(0)
-  const [testText, setTestText] = useState("")
+  const [testResult, setTestResult] = useState<{
+    text: string
+    elapsedMs?: number
+    audioSeconds?: number
+    rtf?: number
+  } | null>(null)
   const [testing, setTesting] = useState(false)
+  const [customUrl, setCustomUrl] = useState("")
+  const [customName, setCustomName] = useState("")
+  const [customType, setCustomType] = useState("")
+  const [customProgress, setCustomProgress] = useState<ProgressState>(IDLE)
   const pollTimers = useRef<Record<string, number>>({})
 
   const refresh = useCallback(async () => {
@@ -187,6 +196,31 @@ export function ASRPage() {
     void refresh()
   }
 
+  const downloadCustom = async () => {
+    const url = customUrl.trim()
+    if (!url) return
+    setCustomProgress({ stage: "downloading", message: t("asr.preparing") })
+    poll("custom:" + (customName.trim() || "model"), setCustomProgress)
+    const res = await fetch("/api/asr/local/download-custom", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        url,
+        name: customName.trim(),
+        model_type: customType,
+      }),
+    })
+    if (!res.ok) {
+      toast.error(await res.text())
+      setCustomProgress({ stage: "error" })
+      return
+    }
+    const data = await res.json()
+    if (data.name) setCustomName(data.name)
+    // Re-poll with the real task key returned by the server.
+    poll(data.task, setCustomProgress)
+  }
+
   const removeRuntime = async (force = false) => {
     const res = await fetch("/api/asr/local/uninstall", {
       method: "POST",
@@ -215,7 +249,7 @@ export function ASRPage() {
 
   const runTest = async (file: File) => {
     setTesting(true)
-    setTestText("")
+    setTestResult(null)
     try {
       const form = new FormData()
       form.append("audio", file)
@@ -228,8 +262,13 @@ export function ASRPage() {
         return
       }
       const data = await res.json()
-      setTestText(data.text ?? "")
-      toast.success(`${t("asr.testDone")} ${data.elapsed_ms}ms`)
+      setTestResult({
+        text: data.text ?? "",
+        elapsedMs: data.elapsed_ms,
+        audioSeconds: data.audio_seconds,
+        rtf: data.rtf,
+      })
+      toast.success(t("asr.testDone"))
     } catch (err) {
       toast.error(String(err))
     } finally {
@@ -366,6 +405,59 @@ export function ASRPage() {
                       />
                     ))}
                   </div>
+
+                  <details className="rounded-md border p-3">
+                    <summary className="cursor-pointer text-sm font-medium">
+                      {t("asr.customModel")}
+                    </summary>
+                    <div className="mt-3 space-y-2">
+                      <p className="text-muted-foreground text-xs">
+                        {t("asr.customModelHint", {
+                          dir: status.models_dir,
+                        })}
+                      </p>
+                      <Input
+                        value={customUrl}
+                        onChange={(e) => setCustomUrl(e.target.value)}
+                        placeholder="https://…/model.tar.bz2"
+                      />
+                      <div className="flex flex-wrap gap-2">
+                        <Input
+                          value={customName}
+                          onChange={(e) => setCustomName(e.target.value)}
+                          placeholder={t("asr.customModelName")}
+                          className="w-48"
+                        />
+                        <select
+                          value={customType}
+                          onChange={(e) => setCustomType(e.target.value)}
+                          className="border-input bg-background h-9 rounded-md border px-2 text-sm"
+                        >
+                          <option value="">
+                            {t("asr.customModelAutoType")}
+                          </option>
+                          <option value="paraformer">paraformer</option>
+                          <option value="sensevoice">sensevoice</option>
+                          <option value="zipformer-ctc">zipformer-ctc</option>
+                          <option value="transducer">transducer</option>
+                        </select>
+                        <Button
+                          onClick={() => void downloadCustom()}
+                          disabled={
+                            !customUrl.trim() ||
+                            customProgress.stage === "downloading" ||
+                            customProgress.stage === "extracting"
+                          }
+                        >
+                          <IconDownload className="mr-1.5 size-4" />
+                          {t("asr.download")}
+                        </Button>
+                      </div>
+                      {customProgress.stage !== "idle" && (
+                        <ProgressBlock progress={customProgress} />
+                      )}
+                    </div>
+                  </details>
                 </CardContent>
               </Card>
 
@@ -423,9 +515,34 @@ export function ASRPage() {
                         />
                       </label>
 
-                      {testText && (
-                        <div className="rounded-md border bg-muted/40 p-3 text-sm whitespace-pre-wrap">
-                          {testText}
+                      {testResult && (
+                        <div className="space-y-2 rounded-md border bg-muted/40 p-3">
+                          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+                            {testResult.elapsedMs !== undefined && (
+                              <span>
+                                <b>{t("asr.testElapsed")}:</b>{" "}
+                                {(testResult.elapsedMs / 1000).toFixed(2)}s
+                              </span>
+                            )}
+                            {testResult.audioSeconds !== undefined &&
+                              testResult.audioSeconds > 0 && (
+                                <span>
+                                  <b>{t("asr.testAudioLen")}:</b>{" "}
+                                  {testResult.audioSeconds.toFixed(2)}s
+                                </span>
+                              )}
+                            {testResult.rtf !== undefined && (
+                              <span>
+                                <b>{t("asr.testRTF")}:</b> {testResult.rtf}
+                                {testResult.rtf < 1
+                                  ? ` (${t("asr.testFasterThanReal")})`
+                                  : ""}
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-sm whitespace-pre-wrap">
+                            {testResult.text}
+                          </div>
                         </div>
                       )}
                     </>

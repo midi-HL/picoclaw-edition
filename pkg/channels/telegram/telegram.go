@@ -1397,7 +1397,11 @@ func (c *TelegramChannel) collectTelegramMessageParts(
 		if voicePath != "" {
 			parts.mediaPaths = append(
 				parts.mediaPaths,
-				storeMedia(voicePath, indexedMediaFilename("voice", ".ogg", index, total)),
+				storeMedia(
+					voicePath,
+					indexedMediaFilename("voice", ".ogg", index, total),
+					media.SourceTelegramVoice,
+				),
 			)
 			parts.content = append(parts.content, "[voice]")
 		}
@@ -1409,7 +1413,10 @@ func (c *TelegramChannel) collectTelegramMessageParts(
 			if strings.TrimSpace(filename) == "" {
 				filename = indexedMediaFilename("audio", ".mp3", index, total)
 			}
-			parts.mediaPaths = append(parts.mediaPaths, storeMedia(audioPath, filename))
+			parts.mediaPaths = append(
+				parts.mediaPaths,
+				storeMedia(audioPath, filename, media.SourceTelegramAudio),
+			)
 			parts.content = append(parts.content, "[audio]")
 		}
 	}

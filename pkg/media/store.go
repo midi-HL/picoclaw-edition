@@ -38,6 +38,15 @@ type MediaMeta struct {
 // inlines their bytes into the current-turn model request.
 const SourceTelegramSticker = "telegram-sticker"
 
+// SourceTelegramVoice marks a Telegram *voice message* (the "hold to talk"
+// recording). These are meant to be transcribed.
+const SourceTelegramVoice = "telegram-voice"
+
+// SourceTelegramAudio marks a Telegram *audio file* (an uploaded .mp3/.m4a and
+// so on). These are NOT transcribed automatically: the user shared a music
+// track or a recording, not a spoken message to the assistant.
+const SourceTelegramAudio = "telegram-audio"
+
 // MediaStore manages the lifecycle of media files associated with processing scopes.
 type MediaStore interface {
 	// Store registers an existing local file under the given scope.

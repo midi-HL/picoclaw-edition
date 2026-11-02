@@ -8,6 +8,7 @@ import (
 
 	"github.com/sipeed/picoclaw/pkg/bus"
 	"github.com/sipeed/picoclaw/pkg/logger"
+	"github.com/sipeed/picoclaw/pkg/media"
 	"github.com/sipeed/picoclaw/pkg/utils"
 )
 
@@ -61,6 +62,16 @@ func (al *AgentLoop) transcribeAudioInMessage(ctx context.Context, msg bus.Inbou
 			continue
 		}
 		if !utils.IsAudioFile(meta.Filename, meta.ContentType) {
+			keptMedia = append(keptMedia, ref)
+			continue
+		}
+		// Only *voice messages* are transcribed automatically.
+		//
+		// A Telegram "audio" attachment is an uploaded music track / recording,
+		// not something the user said to the assistant. Transcribing it wastes
+		// time and surprises the user. Media without an explicit source keeps the
+		// old behaviour so other channels are unaffected.
+		if meta.Source == media.SourceTelegramAudio {
 			keptMedia = append(keptMedia, ref)
 			continue
 		}

@@ -1,8 +1,15 @@
 package agent
 
 import (
+	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/sipeed/picoclaw/pkg/audio/asr"
+	"github.com/sipeed/picoclaw/pkg/bus"
+	"github.com/sipeed/picoclaw/pkg/media"
 )
 
 // Regression guard: a successful transcription must NOT be written back into a
@@ -46,4 +53,47 @@ func TestAudioAnnotationReMatchesPlaceholders(t *testing.T) {
 	if audioAnnotationRe.MatchString("[语音转写] 你好") {
 		t.Fatal("[语音转写] must not be matched by the audio annotation regex")
 	}
+}
+
+// A Telegram "audio" attachment (uploaded music/recording) must NOT be
+// transcribed; only voice messages are. Without the source check every audio
+// file the user shared was silently run through ASR.
+func TestTranscribeAudioInMessage_SkipsTelegramAudioFiles(t *testing.T) {
+	dir := t.TempDir()
+	store := media.NewFileMediaStore()
+
+	audioPath := filepath.Join(dir, "song.mp3")
+	if err := os.WriteFile(audioPath, []byte("fake mp3"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ref, err := store.Store(audioPath, media.MediaMeta{
+		Filename:    "song.mp3",
+		ContentType: "audio/mpeg",
+		Source:      media.SourceTelegramAudio,
+	}, "scope")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	al := &AgentLoop{mediaStore: store, transcriber: &countingTranscriber{}}
+	msg := bus.InboundMessage{
+		Content: "[audio]",
+		Media:   []string{ref},
+	}
+
+	_, hadAudio := al.transcribeAudioInMessage(context.Background(), msg)
+	if hadAudio {
+		t.Fatal("audio file must not be treated as a voice message")
+	}
+	if c, ok := al.transcriber.(*countingTranscriber); ok && c.calls != 0 {
+		t.Fatalf("transcriber must not be called for audio files, got %d calls", c.calls)
+	}
+}
+
+type countingTranscriber struct{ calls int }
+
+func (c *countingTranscriber) Name() string { return "counting" }
+func (c *countingTranscriber) Transcribe(_ context.Context, _ string) (*asr.TranscriptionResponse, error) {
+	c.calls++
+	return &asr.TranscriptionResponse{Text: "x"}, nil
 }

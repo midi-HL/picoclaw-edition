@@ -8,6 +8,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
+	"os/exec"
+	"math"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -38,6 +41,9 @@ type asrModelSpec struct {
 	Languages   string `json:"languages"`
 	ModelType   string `json:"model_type"`
 	Recommended bool   `json:"recommended"`
+	// Custom marks models discovered on disk rather than from the built-in
+	// catalogue. They cannot be re-downloaded, only removed.
+	Custom bool `json:"custom,omitempty"`
 	Description string `json:"description"`
 }
 
@@ -190,6 +196,7 @@ func (h *Handler) registerLocalASRRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/asr/local/enable", h.handleLocalASREnable)
 	mux.HandleFunc("/api/asr/local/test", h.handleLocalASRTest)
 	mux.HandleFunc("/api/asr/local/uninstall", h.handleLocalASRUninstall)
+	mux.HandleFunc("/api/asr/local/download-custom", h.handleLocalASRDownloadCustom)
 }
 
 // GlobalASRDirEnv lets the user relocate the shared ASR directory.
@@ -342,7 +349,9 @@ func (h *Handler) handleLocalASRModels(w http.ResponseWriter, r *http.Request) {
 	}
 
 	out := make([]item, 0, len(asrModels))
+	known := make(map[string]bool, len(asrModels))
 	for _, m := range asrModels {
+		known[m.DirName] = true
 		dir := filepath.Join(h.asrModelsDir(), m.DirName)
 		_, err := os.Stat(dir)
 		out = append(out, item{
@@ -351,7 +360,98 @@ func (h *Handler) handleLocalASRModels(w http.ResponseWriter, r *http.Request) {
 			Active:       m.ID == activeID,
 		})
 	}
+
+	// Discover models the user dropped into the models directory by hand.
+	// Type is inferred from the files present so the CLI gets the right flags.
+	for _, extra := range discoverLocalModels(h.asrModelsDir()) {
+		if known[extra.DirName] {
+			continue
+		}
+		out = append(out, item{
+			asrModelSpec: extra,
+			Downloaded:   true,
+			Active:       extra.ID == activeID,
+		})
+	}
+
 	json.NewEncoder(w).Encode(map[string]any{"models": out})
+}
+
+// discoverLocalModels scans the models directory for user-supplied models and
+// builds a spec for each, inferring the model type from the files present.
+func discoverLocalModels(root string) []asrModelSpec {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return nil
+	}
+	var found []asrModelSpec
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		dir := filepath.Join(root, e.Name())
+		if _, err := os.Stat(filepath.Join(dir, "tokens.txt")); err != nil {
+			continue // not a usable model directory
+		}
+		mt := inferModelType(dir)
+		if mt == "" {
+			continue
+		}
+		found = append(found, asrModelSpec{
+			ID:          e.Name(),
+			Name:        e.Name(),
+			DirName:     e.Name(),
+			ModelType:   mt,
+			SizeMB:      dirSizeMB(dir),
+			Speed:       "自定义",
+			Accuracy:    "自定义",
+			Memory:      "未知",
+			Languages:   "取决于模型",
+			Description: "手动放入 models 目录的模型。",
+			Custom:      true,
+		})
+	}
+	return found
+}
+
+// inferModelType guesses the CLI flag family from the files in dir.
+func inferModelType(dir string) string {
+	has := func(names ...string) bool {
+		for _, n := range names {
+			if _, err := os.Stat(filepath.Join(dir, n)); err == nil {
+				return true
+			}
+		}
+		return false
+	}
+	switch {
+	case has("encoder.onnx", "encoder.int8.onnx") && has("joiner.onnx", "joiner.int8.onnx"):
+		return "transducer"
+	case has("model.int8.onnx", "model.onnx"):
+		// SenseVoice directories ship a tokenizer/model pair with this marker.
+		if has("tokens.txt") {
+			lower := strings.ToLower(dir)
+			if strings.Contains(lower, "sense") {
+				return "sensevoice"
+			}
+			if strings.Contains(lower, "zipformer") && strings.Contains(lower, "ctc") {
+				return "zipformer-ctc"
+			}
+		}
+		return "paraformer"
+	}
+	return ""
+}
+
+func dirSizeMB(dir string) int {
+	var total int64
+	_ = filepath.Walk(dir, func(_ string, info os.FileInfo, err error) error {
+		if err == nil && info != nil && !info.IsDir() {
+			total += info.Size()
+		}
+		return nil
+	})
+	return int(total / (1024 * 1024))
 }
 
 func (h *Handler) handleLocalASRInstall(w http.ResponseWriter, r *http.Request) {
@@ -434,6 +534,190 @@ func (h *Handler) handleLocalASRDownloadModel(w http.ResponseWriter, r *http.Req
 	}()
 
 	json.NewEncoder(w).Encode(map[string]any{"started": true, "task": key})
+}
+
+// handleLocalASRDownloadCustom downloads a user-supplied model archive.
+//
+// Body: {"url": "...", "name": "my-model", "model_type": "paraformer"}
+// The archive is extracted into models/<name>. model_type may be omitted, in
+// which case it is inferred from the extracted files.
+func (h *Handler) handleLocalASRDownloadCustom(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		URL       string `json:"url"`
+		Name      string `json:"name"`
+		ModelType string `json:"model_type"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	rawURL := strings.TrimSpace(req.URL)
+	if rawURL == "" {
+		http.Error(w, "url is required", http.StatusBadRequest)
+		return
+	}
+	if !strings.HasPrefix(rawURL, "https://") && !strings.HasPrefix(rawURL, "http://") {
+		http.Error(w, "url must be http(s)", http.StatusBadRequest)
+		return
+	}
+
+	name := sanitizeModelDirName(req.Name)
+	if name == "" {
+		// Derive from the URL's last path segment.
+		base := filepath.Base(strings.Split(rawURL, "?")[0])
+		base = strings.TrimSuffix(base, filepath.Ext(base))
+		name = sanitizeModelDirName(base)
+	}
+	if name == "" {
+		http.Error(w, "name is required", http.StatusBadRequest)
+		return
+	}
+
+	target := filepath.Join(h.asrModelsDir(), name)
+	if _, err := os.Stat(target); err == nil {
+		http.Error(w, "a model with that name already exists", http.StatusConflict)
+		return
+	}
+
+	tasks := h.asrTasks()
+	key := "custom:" + name
+	st, started := tasks.begin(key)
+	if !started {
+		http.Error(w, "another install is already running", http.StatusConflict)
+		return
+	}
+
+	go func() {
+		defer tasks.finish(key)
+		if err := h.installCustomModel(rawURL, name, req.ModelType, st); err != nil {
+			st.mu.Lock()
+			st.stage = "error"
+			st.err = err.Error()
+			st.message = "下载失败"
+			st.mu.Unlock()
+			logger.ErrorCF("voice", "custom model download failed", map[string]any{
+				"url": rawURL, "error": err.Error(),
+			})
+			return
+		}
+		st.set("done", "下载完成", 100)
+	}()
+
+	json.NewEncoder(w).Encode(map[string]any{"started": true, "task": key, "name": name})
+}
+
+// probeAudioDuration returns the media duration in seconds, or 0 when it cannot
+// be determined (ffprobe missing, unsupported container, …). Used only for the
+// real-time factor display; transcription works without it.
+func probeAudioDuration(path string) float64 {
+	ffprobe, err := exec.LookPath("ffprobe")
+	if err != nil {
+		return 0
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, ffprobe,
+		"-v", "error",
+		"-show_entries", "format=duration",
+		"-of", "default=noprint_wrappers=1:nokey=1",
+		path,
+	).Output()
+	if err != nil {
+		return 0
+	}
+	d, err := strconv.ParseFloat(strings.TrimSpace(string(out)), 64)
+	if err != nil || d <= 0 {
+		return 0
+	}
+	return math.Round(d*1000) / 1000
+}
+
+// installCustomModel downloads url and extracts it into models/<name>.
+func (h *Handler) installCustomModel(url, name, modelType string, st *asrTaskState) error {
+	if err := os.MkdirAll(h.asrModelsDir(), 0o755); err != nil {
+		return err
+	}
+	target := filepath.Join(h.asrModelsDir(), name)
+
+	tmpDir, err := os.MkdirTemp("", "picoclaw-custom-model")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(tmpDir)
+
+	archivePath := filepath.Join(tmpDir, "model.download")
+	if err := h.downloadWithProgress(url, archivePath, st); err != nil {
+		return err
+	}
+
+	st.set("extracting", "解压中…", 0)
+	if err := extractAnyArchive(archivePath, tmpDir, target); err != nil {
+		_ = os.RemoveAll(target)
+		return err
+	}
+
+	// Some archives nest the model in a single top-level directory; flatten it.
+	if err := flattenSingleDir(target); err != nil {
+		return err
+	}
+
+	if _, err := os.Stat(filepath.Join(target, "tokens.txt")); err != nil {
+		return fmt.Errorf("archive does not look like a sherpa-onnx model (missing tokens.txt)")
+	}
+
+	mt := strings.TrimSpace(modelType)
+	if mt == "" {
+		mt = inferModelType(target)
+	}
+	if mt == "" {
+		return fmt.Errorf("could not infer model type; specify model_type explicitly")
+	}
+	logger.InfoCF("voice", "Custom model installed", map[string]any{
+		"name": name, "type": mt,
+	})
+	return nil
+}
+
+// sanitizeModelDirName keeps a safe directory name.
+func sanitizeModelDirName(name string) string {
+	name = strings.TrimSpace(name)
+	name = strings.ReplaceAll(name, "..", "")
+	name = strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+			return r
+		case r == '.', r == '-', r == '_':
+			return r
+		default:
+			return '-'
+		}
+	}, name)
+	return strings.Trim(name, "-.")
+}
+
+// flattenSingleDir moves the contents of a lone subdirectory up one level.
+func flattenSingleDir(dir string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil || len(entries) != 1 || !entries[0].IsDir() {
+		return err
+	}
+	inner := filepath.Join(dir, entries[0].Name())
+	children, err := os.ReadDir(inner)
+	if err != nil {
+		return err
+	}
+	for _, c := range children {
+		if err := os.Rename(filepath.Join(inner, c.Name()), filepath.Join(dir, c.Name())); err != nil {
+			return err
+		}
+	}
+	return os.Remove(inner)
 }
 
 func (h *Handler) handleLocalASRProgress(w http.ResponseWriter, r *http.Request) {
@@ -599,17 +883,27 @@ func (h *Handler) handleLocalASRTest(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Minute)
 	defer cancel()
 
+	audioSeconds := probeAudioDuration(dst)
+
 	start := time.Now()
 	res, err := tr.Transcribe(ctx, dst)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	elapsed := time.Since(start)
 
-	json.NewEncoder(w).Encode(map[string]any{
-		"text":       res.Text,
-		"elapsed_ms": time.Since(start).Milliseconds(),
-	})
+	resp := map[string]any{
+		"text":          res.Text,
+		"elapsed_ms":    elapsed.Milliseconds(),
+		"audio_seconds": audioSeconds,
+	}
+	// Real-time factor: how many seconds of audio are transcribed per second of
+	// compute. Lower is better; <1 means faster than real time.
+	if audioSeconds > 0 {
+		resp["rtf"] = math.Round(elapsed.Seconds()/audioSeconds*1000) / 1000
+	}
+	json.NewEncoder(w).Encode(resp)
 }
 
 // ---------------------------------------------------------------------------

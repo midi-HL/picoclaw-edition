@@ -1106,6 +1106,14 @@
     "forceDeleteConfirm": "仍有实例在使用。确定要强制删除吗？（这些实例的语音功能会失效）",
     "globalInstallHint": "安装在全局目录，本机所有 PicoClaw 实例共用一份。",
     "localInstallHint": "当前使用的是本实例独立目录（旧版布局）。",
-    "otherInstances": "另有 {{count}} 个实例正在共用此安装。"
+    "otherInstances": "另有 {{count}} 个实例正在共用此安装。",
+    "testElapsed": "耗时",
+    "testAudioLen": "音频时长",
+    "testRTF": "实时率",
+    "testFasterThanReal": "快于实时",
+    "customModel": "自定义模型（填链接下载）",
+    "customModelHint": "粘贴 sherpa-onnx 模型压缩包链接（tar.bz2 / tar.gz / zip）。也可以手动把模型解压到 {{dir}} 下，刷新后会自动识别。",
+    "customModelName": "模型名（可选）",
+    "customModelAutoType": "自动识别类型"
   }
 }

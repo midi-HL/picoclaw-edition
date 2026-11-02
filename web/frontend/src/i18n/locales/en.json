@@ -1106,6 +1106,14 @@
     "forceDeleteConfirm": "Other instances are still using it. Delete anyway? (their speech-to-text will stop working)",
     "globalInstallHint": "Installed in the shared directory, used by every PicoClaw instance on this machine.",
     "localInstallHint": "Using this instance's private directory (legacy layout).",
-    "otherInstances": "{{count}} other instance(s) share this install."
+    "otherInstances": "{{count}} other instance(s) share this install.",
+    "testElapsed": "Elapsed",
+    "testAudioLen": "Audio length",
+    "testRTF": "RTF",
+    "testFasterThanReal": "faster than real time",
+    "customModel": "Custom model (download by URL)",
+    "customModelHint": "Paste a sherpa-onnx model archive URL (tar.bz2 / tar.gz / zip). You can also unzip a model into {{dir}} and refresh — it will be detected automatically.",
+    "customModelName": "Model name (optional)",
+    "customModelAutoType": "Auto-detect type"
   }
 }
