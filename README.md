@@ -599,6 +599,36 @@ In **Config → Speech-to-text**, pick the source:
 Everything is optional and `omitempty`: configs without these keys behave
 exactly as before.
 
+### Models: built-in, downloaded, or your own
+
+Three models ship as one-click downloads (paraformer-zh-small,
+streaming-zipformer-zh-14M, SenseVoice Small). Beyond those:
+
+- **Download by URL** — paste any sherpa-onnx model archive
+  (`tar.bz2` / `tar.gz` / `zip`). The format is detected from magic bytes, a
+  redundant top-level directory is flattened, and the model type is inferred
+  from the files unless you specify it.
+- **Drop it in** — unzip a model into `~/.picoclaw-asr/models/<name>/` so it
+  contains `tokens.txt` plus the `.onnx` files, then refresh the page. It is
+  detected and listed automatically.
+
+### Test panel
+
+The test card keeps the result on screen instead of flashing a toast:
+
+| Field | Meaning |
+|---|---|
+| Elapsed | wall-clock time for the transcription |
+| Audio length | duration of the uploaded clip (via ffprobe) |
+| RTF | elapsed ÷ audio length; below 1 means faster than real time |
+
+### Which Telegram messages are transcribed
+
+Only **voice messages** (the hold-to-talk recording) are transcribed
+automatically. An **audio file** (an uploaded `.mp3`/`.m4a`) is left alone —
+the user shared a track or recording, not a spoken message, so it is passed to
+the model as a normal attachment instead of being run through ASR.
+
 ### Voice messages: how the model sees them
 
 Two markers are used and they mean **different things** — mixing them up was a
